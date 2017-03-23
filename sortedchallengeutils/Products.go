@@ -2,6 +2,7 @@ package sortedchallengeutils
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -20,15 +21,15 @@ type Products struct {
 	products []Product
 }
 
-func (p Products) fileName() string {
+func (p *Products) fileName() string {
 	return "products.txt"
 }
 
-func (p Products) decode(decoder *json.Decoder) (err error) {
-	product := Product{}
+func (p *Products) decode(decoder *json.Decoder) (err error) {
+	product := &Product{}
 	err = decoder.Decode(&product)
 	if err == nil {
-		p.products = append(p.products, product)
+		p.products = append(p.products, *product)
 	}
 	return
 }
@@ -51,7 +52,7 @@ func generateTokensFromString(value string) (tokens []string) {
 }
 
 // GetTokens returns a ProductTokens object initialized by the products
-func (p Products) GetTokens() (productTokens *ProductTokens) {
+func (p *Products) GetTokens() (productTokens *ProductTokens) {
 	productTokens = &ProductTokens{}
 	for productIndex, product := range p.products {
 		tokenArray := []string{}
@@ -60,5 +61,11 @@ func (p Products) GetTokens() (productTokens *ProductTokens) {
 		tokenArray = append(tokenArray, generateTokensFromString(product.Model)...)
 		product.tokenList = productTokens.AddTokens(productIndex, tokenArray)
 	}
+	fmt.Println("Product tokens generated. ", len(p.products), " products, ", len(productTokens.tokens), " tokens")
 	return
+}
+
+// GetProductCount returns the number of products in the array
+func (p *Products) GetProductCount() int {
+	return len(p.products)
 }

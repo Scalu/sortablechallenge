@@ -16,19 +16,21 @@ func main() {
 	products := sortedchallengeutils.Products{}
 	listings := sortedchallengeutils.Listings{}
 	archive := sortedchallengeutils.JSONArchive{ArchiveFileName: "challenge_data_20110429.tar.gz", ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"}
-	err := archive.ImportJSONFromArchiveFile(products)
+	err := archive.ImportJSONFromArchiveFile(&products)
 	if err != nil {
 		fmt.Println("Error importing products data: ", err)
 		os.Exit(1)
 	}
-	err = archive.ImportJSONFromArchiveFile(listings)
+	err = archive.ImportJSONFromArchiveFile(&listings)
 	if err != nil {
 		fmt.Println("Error importing listings data: ", err)
 		os.Exit(1)
 	}
-	fmt.Println("Done loading JSON data")
+	fmt.Println("Done loading JSON data. ", products.GetProductCount(), " products, ", listings.GetListingsCount(), " listings")
 	// generate product signatures
-	productSignatures := products.GetSignatures()
+	productTokens := products.GetTokens()
+	fmt.Println("Done sorting through products")
+	_ = productTokens
 	// map listings to signatures
 	// output results
 }

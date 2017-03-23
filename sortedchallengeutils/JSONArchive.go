@@ -96,7 +96,7 @@ func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *
 }
 
 // ImportJSONFromArchiveFile decodes JSON data from file specified by jsonDecoder
-func (jArchive JSONArchive) ImportJSONFromArchiveFile(jDecoder jsonDecoder) (err error) {
+func (jArchive *JSONArchive) ImportJSONFromArchiveFile(jDecoder jsonDecoder) (err error) {
 	archivedFile, err := os.Open(jDecoder.fileName())
 	if os.IsNotExist(err) {
 		archivedFile, err = jArchive.extractArchiveFile(jDecoder.fileName())
