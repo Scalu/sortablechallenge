@@ -149,7 +149,7 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 			return
 		}
 		if isSubsetOf(existingMatch.tokenList, possibleMatch.tokenList) &&
-			tokenOrderDifference*2 < (*tokenOrderDifferences)[existingIndex] {
+			tokenOrderDifference <= (*tokenOrderDifferences)[existingIndex] {
 			*possibleMatches = append((*possibleMatches)[:existingIndex], (*possibleMatches)[existingIndex+1:]...)
 			*tokenOrderDifferences = append((*tokenOrderDifferences)[:existingIndex], (*tokenOrderDifferences)[existingIndex+1:]...)
 		}
@@ -192,6 +192,7 @@ func (l *Listings) MapToProducts(pt *ProductTokens) {
 						matchedProduct = nil
 						break
 					}
+					continue
 				}
 				if tokenOrderDifference > 2+len(possibleProduct.tokenList) {
 					continue
@@ -202,8 +203,8 @@ func (l *Listings) MapToProducts(pt *ProductTokens) {
 		}
 		if matchedProduct != nil {
 			listing.match = matchedProduct
-			matchedProduct.result.Listings = append(matchedProduct.result.Listings, *listing)
-			matchedProduct.result.tokenOrderDifferences = append(matchedProduct.result.tokenOrderDifferences, tokenOrderDifference)
+			matchedProduct.result.Listings = append(matchedProduct.result.Listings, listing)
+			matchedProduct.result.tokenOrderDifferences = append(matchedProduct.result.tokenOrderDifferences, bestTokenOrderDifference)
 		}
 	} // end of iterating through listings
 }
