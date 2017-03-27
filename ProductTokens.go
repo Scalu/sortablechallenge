@@ -1,15 +1,19 @@
-package sortedchallengeutils
+package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Scalu/sortedchallenge/sortedchallengeutils"
+)
 
 type productToken struct {
 	value    string
-	products []int
+	products []*Product
 }
 
-func (pt *productToken) hasProduct(desiredProductIndex int) bool {
-	for _, productIndex := range pt.products {
-		if productIndex == desiredProductIndex {
+func (pt *productToken) hasProduct(desiredProduct *Product) bool {
+	for _, product := range pt.products {
+		if product == desiredProduct {
 			return true
 		}
 	}
@@ -20,11 +24,12 @@ func (pt *productToken) hasProduct(desiredProductIndex int) bool {
 // These tokens are used to matching the listings to products
 type ProductTokens struct {
 	tokens             []productToken
-	tokenTree          BinaryTree
+	tokenTree          sortedchallengeutils.BinaryTree
 	negativeIndexValue string
 }
 
-func (pt *ProductTokens) binaryTreeCompare(a, b int) int {
+// BinaryTreeCompare used by BinaryTree.go
+func (pt *ProductTokens) BinaryTreeCompare(a, b int) int {
 	var aValue, bValue string
 	if a < 0 {
 		aValue = pt.negativeIndexValue
@@ -45,12 +50,14 @@ func (pt *ProductTokens) binaryTreeCompare(a, b int) int {
 	return 0
 }
 
-func (pt *ProductTokens) insert(value string) (index int, valueAlreadyExists bool) {
+func (pt *ProductTokens) insert(value string) (index int) {
 	pt.negativeIndexValue = value
-	return pt.tokenTree.Insert(pt, -1)
+	index, _ = pt.tokenTree.Insert(pt, -1, false)
+	return
 }
 
-func (pt *ProductTokens) getInsertValue() (index int) {
+// GetInsertValue used by BinaryTree.go
+func (pt *ProductTokens) GetInsertValue() (index int) {
 	pt.tokens = append(pt.tokens, productToken{value: pt.negativeIndexValue})
 	return len(pt.tokens) - 1
 }
@@ -62,18 +69,29 @@ func (pt *ProductTokens) getValueString(value int) string {
 	return pt.tokens[value].value
 }
 
-func (pt *ProductTokens) Search(value string) (index int) {
-	pt.negativeIndexValue = value
-	return pt.tokenTree.Search(pt, -1)
+// Search find the token index containing this string value
+func (pt *ProductTokens) Search(stringValue string) (index int) {
+	pt.negativeIndexValue = stringValue
+	index, _ = pt.tokenTree.Insert(pt, -1, true)
+	return
+}
+
+// GetMatchingToken returns a product token that matches a given string
+func (pt *ProductTokens) getMatchingToken(value string) (matchingToken *productToken) {
+	matchingIndex := pt.Search(value)
+	if matchingIndex > -1 {
+		return &pt.tokens[matchingIndex]
+	}
+	return nil
 }
 
 // AddTokens Adds tokens to the tokens array
-func (pt *ProductTokens) AddTokens(productIndex int, signature []string) (tokenList []int) {
+func (pt *ProductTokens) AddTokens(product *Product, signature []string) (tokenList []int) {
 	//build the signature
 	for _, tokenString := range signature {
-		tokenIndex, alreadyExists := pt.insert(tokenString)
-		if !alreadyExists || !pt.tokens[tokenIndex].hasProduct(productIndex) {
-			pt.tokens[tokenIndex].products = append(pt.tokens[tokenIndex].products, productIndex)
+		tokenIndex := pt.insert(tokenString)
+		if !pt.tokens[tokenIndex].hasProduct(product) {
+			pt.tokens[tokenIndex].products = append(pt.tokens[tokenIndex].products, product)
 			tokenList = append(tokenList, tokenIndex)
 		}
 	}
@@ -85,7 +103,8 @@ func (pt *ProductTokens) DumpTree() {
 	pt.tokenTree.DumpTree(pt)
 }
 
-func (pt *ProductTokens) dumpNode(value, parentValue, leftValue, rightValue, weight int) {
+// DumpNode used by BinaryTree.go
+func (pt *ProductTokens) DumpNode(value, parentValue, leftValue, rightValue, weight int) {
 	fmt.Println("node", value, ":", pt.getValueString(value),
 		"| parent", parentValue, ":", pt.getValueString(parentValue),
 		"| left", leftValue, ":", pt.getValueString(leftValue),

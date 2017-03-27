@@ -13,8 +13,8 @@ func main() {
 	fmt.Println("Begining sortedchallenge program at ", startTime)
 	defer fmt.Println("Exiting sortedchallenge. Duration: ", time.Since(startTime))
 	// load the products and listings data
-	products := sortedchallengeutils.Products{}
-	listings := sortedchallengeutils.Listings{}
+	products := Products{}
+	listings := Listings{}
 	archive := sortedchallengeutils.JSONArchive{ArchiveFileName: "challenge_data_20110429.tar.gz", ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"}
 	err := archive.ImportJSONFromArchiveFile(&products)
 	if err != nil {
@@ -29,8 +29,11 @@ func main() {
 	fmt.Println("Done loading JSON data. ", products.GetProductCount(), " products, ", listings.GetListingsCount(), " listings")
 	// generate product signatures
 	productTokens := products.GetTokens()
-	fmt.Println("Done sorting through products")
-	_ = productTokens
 	// map listings to signatures
-	// output results
+	listings.MapToProducts(productTokens)
+	// weed out price abberations
+
+	// export results
+	listings.exportUnmatchedListings("unmatched.txt")
+	products.exportResults("results.txt")
 }

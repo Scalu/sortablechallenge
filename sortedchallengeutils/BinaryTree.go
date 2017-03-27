@@ -2,9 +2,9 @@ package sortedchallengeutils
 
 // BinaryTreeComparer This interface provides a method for camparing 2 values
 type BinaryTreeComparer interface {
-	binaryTreeCompare(a, b int) int
-	getInsertValue() int
-	dumpNode(value, parentValue, leftValue, rightValue, weight int)
+	BinaryTreeCompare(a, b int) int
+	GetInsertValue() int
+	DumpNode(value, parentValue, leftValue, rightValue, weight int)
 }
 
 type binaryTreeNode struct {
@@ -26,7 +26,7 @@ type BinaryTree struct {
 
 func (bt *BinaryTree) getNewNode(comparer BinaryTreeComparer, parent *binaryTreeNode, value int) (newNode *binaryTreeNode) {
 	if value < 0 {
-		value = comparer.getInsertValue()
+		value = comparer.GetInsertValue()
 	}
 	bt.nodeCount++
 	return &binaryTreeNode{value: value, parent: parent}
@@ -133,53 +133,54 @@ func (bt *BinaryTree) processRebalanceList(comparer BinaryTreeComparer) {
 }
 
 // Insert inserts a value, and returns the actual value
-func (bt *BinaryTree) Insert(comparer BinaryTreeComparer, value int) (actualValue int, valueAlreadyExists bool) {
+func (bt *BinaryTree) Insert(comparer BinaryTreeComparer, value int, searchOnly bool) (actualValue int, valueAlreadyExists bool) {
 	if bt.rootNode == nil {
+		if searchOnly {
+			return -1, false
+		}
 		bt.rootNode = bt.getNewNode(comparer, nil, value)
 		return bt.rootNode.value, false
 	}
-	defer bt.processRebalanceList(comparer)
+	if !searchOnly {
+		defer bt.processRebalanceList(comparer)
+	}
 	node := bt.rootNode
 	var nextNodePtr **binaryTreeNode
 	for {
-		comparisonResult := comparer.binaryTreeCompare(node.value, value)
+		comparisonResult := comparer.BinaryTreeCompare(node.value, value)
 		if comparisonResult == 0 {
 			actualValue = node.value
-			// undo weight changes
-			for node.parent != nil {
-				if node.parent.leftright[0] == node {
-					node.parent.weight++
-				} else {
-					node.parent.weight--
-				}
-				node = node.parent
-			}
 			return actualValue, true
 		}
 		if comparisonResult < 0 {
-			node.weight-- // can't modify the weight if a value already exists
 			nextNodePtr = &node.leftright[0]
 		} else {
-			node.weight++
 			nextNodePtr = &node.leftright[1]
 		}
-		if node.weight < -1 || node.weight > 1 {
-			bt.rebalanceList = append(bt.rebalanceList, node)
-		}
 		if *nextNodePtr == nil {
+			if searchOnly {
+				return -1, false
+			}
 			*nextNodePtr = bt.getNewNode(comparer, node, value)
+			node = *nextNodePtr
+			// do weight changes and populate rebalance list
+			for node.parent != nil && !searchOnly {
+				if node.parent.leftright[0] == node {
+					node.parent.weight--
+				} else {
+					node.parent.weight++
+				}
+				if node.parent.weight < -1 || node.parent.weight > 1 {
+					bt.rebalanceList = append([]*binaryTreeNode{node.parent}, bt.rebalanceList...)
+				}
+				node = node.parent
+			}
 			// fmt.Println("Insert done for node value", (*nextNodePtr).value)
 			// bt.DumpTree(comparer)
 			return (*nextNodePtr).value, false
 		}
 		node = *nextNodePtr
 	}
-}
-
-// Search searches for a value and return matching value
-// returns -1 if there is no match
-func (bt *BinaryTree) Search(comparer BinaryTreeComparer, searchValue int) (value int) {
-	return -1
 }
 
 // DumpTree dumps the tree for debugging purposes
@@ -203,6 +204,6 @@ func (bt *BinaryTree) DumpTree(comparer BinaryTreeComparer) {
 			rightValue = node.leftright[1].value
 			nodeArray = append(nodeArray, node.leftright[1])
 		}
-		comparer.dumpNode(node.value, parentValue, leftValue, rightValue, node.weight)
+		comparer.DumpNode(node.value, parentValue, leftValue, rightValue, node.weight)
 	}
 }

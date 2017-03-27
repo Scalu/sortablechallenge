@@ -11,8 +11,8 @@ import (
 )
 
 type jsonDecoder interface {
-	fileName() string
-	decode(*json.Decoder) error
+	GetFileName() string
+	Decode(*json.Decoder) error
 }
 
 // JSONArchive struct to hold archive file.
@@ -97,18 +97,18 @@ func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *
 
 // ImportJSONFromArchiveFile decodes JSON data from file specified by jsonDecoder
 func (jArchive *JSONArchive) ImportJSONFromArchiveFile(jDecoder jsonDecoder) (err error) {
-	archivedFile, err := os.Open(jDecoder.fileName())
+	archivedFile, err := os.Open(jDecoder.GetFileName())
 	if os.IsNotExist(err) {
-		archivedFile, err = jArchive.extractArchiveFile(jDecoder.fileName())
+		archivedFile, err = jArchive.extractArchiveFile(jDecoder.GetFileName())
 	}
 	if err != nil {
-		fmt.Println("Error opening archived file: ", jDecoder.fileName(), err)
+		fmt.Println("Error opening archived file: ", jDecoder.GetFileName(), err)
 		return err
 	}
 	defer archivedFile.Close()
 	decoder := json.NewDecoder(archivedFile)
 	for {
-		err = jDecoder.decode(decoder)
+		err = jDecoder.Decode(decoder)
 		if err != nil {
 			if err == io.EOF {
 				err = nil
