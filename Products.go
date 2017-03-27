@@ -98,6 +98,44 @@ func (p *Products) GetProductCount() int {
 	return len(p.products)
 }
 
+func (p *Products) dropIrregularlyPricedResults() {
+	for _, product := range p.products {
+		// get a weighted average price
+		totalPriceOfAllListings := 0.0
+		totalWeight := 0
+
+		for listingIndex, listing := range product.result.Listings {
+			currentListingPrice := listing.GetPrice(-1)
+			currentTokenOrderDifference := product.result.tokenOrderDifferences[listingIndex]
+			if currentListingPrice > 0.0 {
+				if currentTokenOrderDifference > 5 {
+					totalPriceOfAllListings += currentListingPrice
+					totalWeight++
+				} else {
+					currentWeight := (7 - currentTokenOrderDifference) * (7 - currentTokenOrderDifference)
+					totalPriceOfAllListings += currentListingPrice * float64(currentWeight)
+					totalWeight += currentWeight
+				}
+			}
+		}
+		weightedAveragePrice := totalPriceOfAllListings / float64(totalWeight)
+		// drop listings the deviate too far from weighted average
+		listingIndex := 0
+		for listingIndex < len(product.result.Listings) {
+			listing := product.result.Listings[listingIndex]
+			currentListingPrice := listing.GetPrice(-1)
+			currentTokenOrderDifference := product.result.tokenOrderDifferences[listingIndex]
+			allowedVariance := 1.0 + 6.0/(2.0+float64(currentTokenOrderDifference))
+			if currentListingPrice < weightedAveragePrice/allowedVariance || currentListingPrice > weightedAveragePrice*allowedVariance {
+				listing.match = nil
+				product.result.Listings = append(product.result.Listings[:listingIndex], product.result.Listings[listingIndex+1:]...)
+			} else {
+				listingIndex++
+			}
+		}
+	}
+}
+
 func (p *Products) exportResults(filename string) {
 	resultsFile, err := os.Create(filename)
 	if err != nil {

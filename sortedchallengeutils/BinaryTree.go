@@ -37,9 +37,6 @@ func (bt *BinaryTree) rebalanceNode(comparer BinaryTreeComparer, node *binaryTre
 		return
 	}
 	bt.rebalanceCount++
-	if bt.nodeCount == 25 {
-		println("break here")
-	}
 
 	newRootSide := 0           // side from which the new root node is being taken from
 	newRootSideWeightMod := -1 // weight modifier for nodes between the current and new roots

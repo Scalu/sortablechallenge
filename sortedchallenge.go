@@ -32,7 +32,7 @@ func main() {
 	// map listings to signatures
 	listings.MapToProducts(productTokens)
 	// weed out price abberations
-
+	products.dropIrregularlyPricedResults()
 	// export results
 	listings.exportUnmatchedListings("unmatched.txt")
 	products.exportResults("results.txt")

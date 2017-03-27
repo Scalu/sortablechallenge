@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // Listing defines the fields found in the listings.txt json file
@@ -13,6 +15,27 @@ type Listing struct {
 	Currency     string `json:"currency"`
 	Price        string `json:"price"`
 	match        *Product
+}
+
+// GetPrice return price of item in USD
+func (l *Listing) GetPrice(defaultPrice float64) float64 {
+	price, err := strconv.ParseFloat(l.Price, 32)
+	if err != nil {
+		fmt.Println("Price conversion error for listing", l, err)
+		return defaultPrice
+	}
+	switch strings.ToLower(l.Currency) {
+	case "usd":
+		return price
+	case "cad":
+		return price / 1.34
+	case "eur":
+		return price / 0.92
+	case "gbp":
+		return price / 0.79
+	}
+	fmt.Println("Unhandled currency for listing", l)
+	return defaultPrice
 }
 
 // Listings struct to hold the listing data
