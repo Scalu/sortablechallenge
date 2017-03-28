@@ -93,12 +93,15 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 	// make sure that all of the tokens are present, and calculate the token order difference
 	tokenOrderDifference := 0
 	expectedNextTokenPosition := 0
-	missingManufacturerTokens := false
-	missingFamilyTokens := false
+	missingManufacturerTokens := possibleMatch.manufacturerTokenCount == 0
+	missingFamilyTokens := possibleMatch.familyTokenCount == 0
 	for tokenIndex, tokenObjectIndex := range possibleMatch.tokenList {
 		requiredToken := &pt.tokens[tokenObjectIndex]
 		tokenFound := false
 		for distanceFromExpected := 0; distanceFromExpected <= expectedNextTokenPosition || distanceFromExpected+expectedNextTokenPosition < len(listingTokens); distanceFromExpected++ {
+			if tokenIndex > possibleMatch.manufacturerTokenCount+possibleMatch.familyTokenCount && distanceFromExpected > 0 {
+				break // don't match out of order model numbers
+			}
 			if distanceFromExpected+expectedNextTokenPosition < len(listingTokens) {
 				listingToken := listingTokens[expectedNextTokenPosition+distanceFromExpected]
 				if listingToken == requiredToken.value {

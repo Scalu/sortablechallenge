@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 )
@@ -108,39 +107,56 @@ func getWeightForTokenOrderDifference(tokenOrderDifference int) (weight int) {
 }
 
 func (p *Products) dropIrregularlyPricedResults() {
-	for _, product := range p.products {
+	// calculate the best range
+	var bestRangeStartPrice, bestRangeMaxValue, bestRangeSpread float64
+	var currentRangeStartPrice, currentRangeMaxValue, currentRangeSpread float64
+	var secondListingPrice float64
+	var bestRangeWeightValue, currentRangeWeightValue, listingIndex, secondIndex, totalWeight int
+	var listing, secondListing *Listing
+	var product *Product
+	maxRangeSpread := 2.0
+	for _, product = range p.products {
 		if len(product.result.Listings) == 0 {
 			continue
 		}
-		// get a weighted average price
-		totalWeightedPrice := 0.0
-		totalWeight := 0
-		var currentWeight int
-		var currentTokenOrderDifference int
-		var currentListingPrice float64
-		for listingIndex, listing := range product.result.Listings {
-			currentListingPrice := listing.GetPrice(-1)
-			if currentListingPrice > 0.0 {
-				currentTokenOrderDifference = product.result.tokenOrderDifferences[listingIndex]
-				currentWeight = getWeightForTokenOrderDifference(currentTokenOrderDifference)
-				totalWeightedPrice += currentListingPrice * float64(currentWeight)
-				totalWeight += currentWeight
+		bestRangeStartPrice = 0.0
+		bestRangeMaxValue = 0.0
+		bestRangeSpread = 0.0
+		bestRangeWeightValue = 0
+		totalWeight = 0
+		for listingIndex, listing = range product.result.Listings {
+			currentRangeStartPrice = listing.GetPrice(-1.0)
+			if currentRangeStartPrice < 0 {
+				continue
+			}
+			currentRangeMaxValue = currentRangeStartPrice
+			currentRangeWeightValue = 0
+			totalWeight += getWeightForTokenOrderDifference(product.result.tokenOrderDifferences[listingIndex])
+			for secondIndex, secondListing = range product.result.Listings {
+				secondListingPrice = secondListing.GetPrice(-1.0)
+				if secondListingPrice < 0 {
+					continue
+				}
+				if secondListingPrice >= currentRangeStartPrice && secondListingPrice <= currentRangeStartPrice*maxRangeSpread {
+					currentRangeWeightValue += getWeightForTokenOrderDifference(product.result.tokenOrderDifferences[secondIndex])
+					if secondListingPrice > currentRangeMaxValue {
+						currentRangeMaxValue = secondListingPrice
+					}
+				}
+			}
+			currentRangeSpread = currentRangeMaxValue / currentRangeStartPrice
+			if currentRangeWeightValue > bestRangeWeightValue ||
+				currentRangeWeightValue == bestRangeWeightValue && currentRangeSpread < bestRangeSpread {
+				bestRangeStartPrice = currentRangeStartPrice
+				bestRangeWeightValue = currentRangeWeightValue
+				bestRangeMaxValue = currentRangeMaxValue
+				bestRangeSpread = currentRangeSpread
 			}
 		}
-		weightedAveragePrice := totalWeightedPrice / float64(totalWeight)
-		totalWeightedDeviation := 0.0
-		for listingIndex, listing := range product.result.Listings {
-			currentListingPrice = listing.GetPrice(-1)
-			if currentListingPrice > 0.0 {
-				currentTokenOrderDifference = product.result.tokenOrderDifferences[listingIndex]
-				currentWeight = getWeightForTokenOrderDifference(currentTokenOrderDifference)
-				totalWeightedDeviation += math.Abs(weightedAveragePrice-currentListingPrice) * float64(currentWeight)
-			}
-		}
-		weightedAverageDeviation := totalWeightedDeviation / float64(totalWeight)
-		// remove all listings if deviation is very high
+		// remove all listings if weight value in spread is not high enough
 		var listing *Listing
-		if weightedAverageDeviation >= weightedAveragePrice/3 {
+		if bestRangeWeightValue < totalWeight/2 {
+			fmt.Println("Warning spread out pricing for product", product.ProductName)
 			for _, listing = range product.result.Listings {
 				listing.match = nil
 			}
@@ -148,15 +164,16 @@ func (p *Products) dropIrregularlyPricedResults() {
 			product.result.tokenOrderDifferences = []int{}
 			continue
 		}
-		// drop listings the deviate too far from weighted average
+		// drop listings the deviate too far out from the spread
 		listingIndex := 0
-		var allowedVariance float64
+		var allowedVariance, currentListingPrice float64
+		var currentListingWeight int
 		for listingIndex < len(product.result.Listings) {
 			listing = product.result.Listings[listingIndex]
 			currentListingPrice = listing.GetPrice(-1)
-			currentTokenOrderDifference = product.result.tokenOrderDifferences[listingIndex]
-			allowedVariance = 1.0 + 6.0/(2.0+float64(currentTokenOrderDifference))
-			if currentListingPrice < weightedAveragePrice/allowedVariance || currentListingPrice > weightedAveragePrice*allowedVariance {
+			currentListingWeight = getWeightForTokenOrderDifference(product.result.tokenOrderDifferences[listingIndex])
+			allowedVariance = 1.0 + 0.05*float64(currentListingWeight)
+			if currentListingPrice < bestRangeStartPrice/allowedVariance || currentListingPrice > bestRangeMaxValue*allowedVariance {
 				listing.match = nil
 				product.result.Listings = append(product.result.Listings[:listingIndex], product.result.Listings[listingIndex+1:]...)
 				product.result.tokenOrderDifferences = append(product.result.tokenOrderDifferences[:listingIndex], product.result.tokenOrderDifferences[listingIndex+1:]...)
