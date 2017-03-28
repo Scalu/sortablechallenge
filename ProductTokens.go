@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/Scalu/sortedchallenge/sortedchallengeutils"
+	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
 type productToken struct {
@@ -24,7 +24,7 @@ func (pt *productToken) hasProduct(desiredProduct *Product) bool {
 // These tokens are used to matching the listings to products
 type ProductTokens struct {
 	tokens             []productToken
-	tokenTree          sortedchallengeutils.BinaryTree
+	tokenTree          sortablechallengeutils.BinaryTree
 	negativeIndexValue string
 }
 

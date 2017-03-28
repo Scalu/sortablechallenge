@@ -1,4 +1,4 @@
-package sortedchallengeutils
+package sortablechallengeutils
 
 import (
 	"archive/tar"

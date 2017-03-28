@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Scalu/sortedchallenge/sortedchallengeutils"
+	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 	// load the products and listings data
 	products := Products{}
 	listings := Listings{}
-	archive := sortedchallengeutils.JSONArchive{ArchiveFileName: "challenge_data_20110429.tar.gz", ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"}
+	archive := sortablechallengeutils.JSONArchive{ArchiveFileName: "challenge_data_20110429.tar.gz", ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"}
 	err := archive.ImportJSONFromArchiveFile(&products)
 	if err != nil {
 		fmt.Println("Error importing products data: ", err)

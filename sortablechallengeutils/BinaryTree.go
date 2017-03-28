@@ -1,4 +1,4 @@
-package sortedchallengeutils
+package sortablechallengeutils
 
 // BinaryTreeComparer This interface provides a method for camparing 2 values
 type BinaryTreeComparer interface {
