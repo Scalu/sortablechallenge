@@ -6,9 +6,9 @@ It is written in Go (or Golang if you will), which I have no previous experience
 
 <p>To install git, run: sudo apt install git</p>
 
-<p>To install go, run: wget https://storage.googleapis.com/golang/go1.8.linux-amd64.tar.gz; sudo tar -C /usr/local -xzf go1.8.linux-amd64.tar.gz; sudo cat "PATH=$PATH:/usr/local/go/bin" >> /etc/profile; export PATH=$PATH:/usr/local/go/bin</p>
+<p>To install go, run: wget https://storage.googleapis.com/golang/go1.8.linux-amd64.tar.gz; sudo tar -C /usr/local -xzf go1.8.linux-amd64.tar.gz; sudo cat "PATH=$PATH:/usr/local/go/bin" >> ~/.profile; export PATH=$PATH:/usr/local/go/bin</p>
 <p>Alternately, although you may get an older version, you can run: sudo apt install golang-go</p>
 
 <p>To clone my repo, run: mkdir -p ~/go/src/github.com/Scalu; cd ~/go/src/github.com/Scalu; git clone https://github.com/Scalu/sortablechallenge.git</p>
 
-<p>To build and run my code, run: export GOROOT=~/go; cd ~/go/src/github.com/Scalu/sortablechallenge; go build; ./sortablechallenge</p>
+<p>To build and run my code, run: export GOPATH=~/go; cd ~/go/src/github.com/Scalu/sortablechallenge; go build; ./sortablechallenge</p>
