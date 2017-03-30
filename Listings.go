@@ -41,7 +41,8 @@ func (l *Listing) GetPrice(defaultPrice float64) float64 {
 // Listings struct to hold the listing data
 // implementes JSONDecoder
 type Listings struct {
-	listings []*Listing
+	listings              []*Listing
+	unmatchedProductCount int
 }
 
 // GetFileName used by JSONArchive util
@@ -59,11 +60,7 @@ func (l *Listings) Decode(decoder *json.Decoder) (err error) {
 	return
 }
 
-// GetListingsCount returns the number of listings
-func (l *Listings) GetListingsCount() int {
-	return len(l.listings)
-}
-
+// isSubsetOf return true if possibleSubset is a subset of possibleSuperset
 func isSubsetOf(possibleSubset, possibleSuperset []int) bool {
 	if len(possibleSubset) >= len(possibleSuperset) {
 		return false
@@ -83,6 +80,7 @@ func isSubsetOf(possibleSubset, possibleSuperset []int) bool {
 	return true
 }
 
+// addPossibleMatch adds a match to a list of matches if it passes certains checks
 func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrderDifferences *[]int, listingTokens []string, possibleMatch *Product) {
 	// don't add the product if it's already in the possible matches
 	for _, existingMatch := range *possibleMatches {
@@ -90,7 +88,7 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 			return
 		}
 	}
-	// make sure that all of the tokens are present, and calculate the token order difference
+	// make sure that all of the tokens are present, and calculate the token order difference value
 	tokenOrderDifference := 0
 	expectedNextTokenPosition := 0
 	missingManufacturerTokens := possibleMatch.manufacturerTokenCount == 0
@@ -98,33 +96,34 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 	for tokenIndex, tokenObjectIndex := range possibleMatch.tokenList {
 		requiredToken := &pt.tokens[tokenObjectIndex]
 		tokenFound := false
-		for distanceFromExpected := 0; distanceFromExpected <= expectedNextTokenPosition || distanceFromExpected+expectedNextTokenPosition < len(listingTokens); distanceFromExpected++ {
-			if tokenIndex > possibleMatch.manufacturerTokenCount+possibleMatch.familyTokenCount && distanceFromExpected > 0 {
+		for distanceFromExpectedPosition := 0; distanceFromExpectedPosition <= expectedNextTokenPosition || distanceFromExpectedPosition+expectedNextTokenPosition < len(listingTokens); distanceFromExpectedPosition++ {
+			if tokenIndex > possibleMatch.manufacturerTokenCount+possibleMatch.familyTokenCount && distanceFromExpectedPosition > 0 {
 				break // don't match out of order model numbers
 			}
-			if distanceFromExpected+expectedNextTokenPosition < len(listingTokens) {
-				listingToken := listingTokens[expectedNextTokenPosition+distanceFromExpected]
+			if distanceFromExpectedPosition+expectedNextTokenPosition < len(listingTokens) {
+				listingToken := listingTokens[expectedNextTokenPosition+distanceFromExpectedPosition]
 				if listingToken == requiredToken.value {
-					if distanceFromExpected <= 2 ||
+					if distanceFromExpectedPosition <= 2 ||
 						tokenIndex < possibleMatch.manufacturerTokenCount ||
 						tokenIndex >= possibleMatch.manufacturerTokenCount+possibleMatch.familyTokenCount {
 						tokenFound = true
-						tokenOrderDifference += distanceFromExpected
-						expectedNextTokenPosition = expectedNextTokenPosition + distanceFromExpected + 1
+						tokenOrderDifference += distanceFromExpectedPosition
+						expectedNextTokenPosition = expectedNextTokenPosition + distanceFromExpectedPosition + 1
 						break
 					}
 				}
 			}
-			if distanceFromExpected+1 < expectedNextTokenPosition && distanceFromExpected > 0 {
-				listingToken := listingTokens[expectedNextTokenPosition-1-distanceFromExpected]
+			if distanceFromExpectedPosition+1 < expectedNextTokenPosition && distanceFromExpectedPosition > 0 {
+				listingToken := listingTokens[expectedNextTokenPosition-1-distanceFromExpectedPosition]
 				if listingToken == requiredToken.value {
 					tokenFound = true
-					tokenOrderDifference += distanceFromExpected
-					expectedNextTokenPosition = expectedNextTokenPosition - distanceFromExpected
+					tokenOrderDifference += distanceFromExpectedPosition
+					expectedNextTokenPosition = expectedNextTokenPosition - distanceFromExpectedPosition
 					break
 				}
 			}
 		}
+		// ignore a missing manufacturer or family token, but not both
 		if !tokenFound {
 			if tokenIndex < possibleMatch.manufacturerTokenCount {
 				if !missingFamilyTokens {
@@ -148,15 +147,18 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 	}
 	// eliminate subsets of this product, and eliminate this product if it's a subset of an existing product
 	for existingIndex, existingMatch := range *possibleMatches {
+		// eliminate this match if it's a subset of a previous match
 		if isSubsetOf(possibleMatch.tokenList, existingMatch.tokenList) {
 			return
 		}
+		// eliminate previous matches that are subsets of this match
 		if isSubsetOf(existingMatch.tokenList, possibleMatch.tokenList) &&
 			tokenOrderDifference <= (*tokenOrderDifferences)[existingIndex] {
 			*possibleMatches = append((*possibleMatches)[:existingIndex], (*possibleMatches)[existingIndex+1:]...)
 			*tokenOrderDifferences = append((*tokenOrderDifferences)[:existingIndex], (*tokenOrderDifferences)[existingIndex+1:]...)
 		}
 	}
+	// add the match and store the token order difference value
 	*possibleMatches = append(*possibleMatches, possibleMatch)
 	*tokenOrderDifferences = append(*tokenOrderDifferences, tokenOrderDifference)
 }
@@ -212,6 +214,7 @@ func (l *Listings) MapToProducts(pt *ProductTokens) {
 	} // end of iterating through listings
 }
 
+// exportUnmatchedListings export a list of unmatched listings to the given filename
 func (l *Listings) exportUnmatchedListings(filename string) {
 	unmatchedListingsFile, err := os.Create(filename)
 	if err != nil {
@@ -220,8 +223,10 @@ func (l *Listings) exportUnmatchedListings(filename string) {
 	}
 	defer unmatchedListingsFile.Close()
 	jsonEncoder := json.NewEncoder(unmatchedListingsFile)
+	l.unmatchedProductCount = 0
 	for _, listing := range l.listings {
 		if listing.match == nil {
+			l.unmatchedProductCount++
 			err = jsonEncoder.Encode(listing)
 			if err != nil {
 				fmt.Println("Error exporting unmatched listings to file", filename, ":", err)
@@ -229,4 +234,5 @@ func (l *Listings) exportUnmatchedListings(filename string) {
 			}
 		}
 	}
+	fmt.Println("Done writing", l.unmatchedProductCount, "unmatched listings to", filename)
 }

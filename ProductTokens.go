@@ -1,16 +1,16 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
+// productToken holds the value of a token and a list of products it appears in
 type productToken struct {
 	value    string
 	products []*Product
 }
 
+// hasProduct returns true if the product is already in the token's list of products that it appears in
 func (pt *productToken) hasProduct(desiredProduct *Product) bool {
 	for _, product := range pt.products {
 		if product == desiredProduct {
@@ -28,7 +28,7 @@ type ProductTokens struct {
 	negativeIndexValue string
 }
 
-// BinaryTreeCompare used by BinaryTree.go
+// BinaryTreeCompare used by BinaryTree.go to return the comparison indicator between two indexed values
 func (pt *ProductTokens) BinaryTreeCompare(a, b int) int {
 	var aValue, bValue string
 	if a < 0 {
@@ -50,23 +50,10 @@ func (pt *ProductTokens) BinaryTreeCompare(a, b int) int {
 	return 0
 }
 
-func (pt *ProductTokens) insert(value string) (index int) {
-	pt.negativeIndexValue = value
-	index, _ = pt.tokenTree.Insert(pt, -1, false)
-	return
-}
-
 // GetInsertValue used by BinaryTree.go
 func (pt *ProductTokens) GetInsertValue() (index int) {
 	pt.tokens = append(pt.tokens, productToken{value: pt.negativeIndexValue})
 	return len(pt.tokens) - 1
-}
-
-func (pt *ProductTokens) getValueString(value int) string {
-	if value < 0 {
-		return "--nil--"
-	}
-	return pt.tokens[value].value
 }
 
 // Search find the token index containing this string value
@@ -89,40 +76,12 @@ func (pt *ProductTokens) getMatchingToken(value string) (matchingToken *productT
 func (pt *ProductTokens) AddTokens(product *Product, signature []string) (tokenList []int) {
 	//build the signature
 	for _, tokenString := range signature {
-		tokenIndex := pt.insert(tokenString)
+		pt.negativeIndexValue = tokenString
+		tokenIndex, _ := pt.tokenTree.Insert(pt, -1, false)
 		if !pt.tokens[tokenIndex].hasProduct(product) {
 			pt.tokens[tokenIndex].products = append(pt.tokens[tokenIndex].products, product)
 			tokenList = append(tokenList, tokenIndex)
 		}
 	}
 	return
-}
-
-// DumpTree prints out the tree to console for debugging
-func (pt *ProductTokens) DumpTree() {
-	pt.tokenTree.DumpTree(pt)
-}
-
-// DumpNode used by BinaryTree.go
-func (pt *ProductTokens) DumpNode(value, parentValue, leftValue, rightValue, weight int) {
-	fmt.Println("node", value, ":", pt.getValueString(value),
-		"| parent", parentValue, ":", pt.getValueString(parentValue),
-		"| left", leftValue, ":", pt.getValueString(leftValue),
-		"| right", rightValue, ":", pt.getValueString(rightValue),
-		"| weight", weight)
-	if leftValue < 0 && weight < 0 {
-		panic("invalid weight")
-	}
-	if rightValue < 0 && weight > 0 {
-		panic("invalid weight")
-	}
-	if leftValue < 0 && rightValue < 0 && weight != 0 {
-		panic("invalid weight!")
-	}
-	if leftValue > -1 && rightValue < 0 && weight > -1 {
-		panic("invalid weight!")
-	}
-	if leftValue < 0 && rightValue > -1 && weight < 1 {
-		panic("invalid weight!")
-	}
 }
