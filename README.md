@@ -1,5 +1,5 @@
 <p>This is my entry for the sortable coding challenge: https://sortable.com/challenge/.
-It's not perfect, I'd like to completely approach the matching in a different manner altogether, but the deadline is coming up and I have other things to get to.
+It's not perfect, I'd like to completely approach the matching in a different manner altogether, but the deadline is coming up and the rewrite could take a bit too long. I might get to it sometime later.
 It is written in Go (or Golang if you will), which I have no previous experience with. It was a fun learning experience.</p>
 
 <p>To run this on Ubuntu or other similar linux systems you need to have git and go installed</p>
