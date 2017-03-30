@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
 // Result contains matching results to be exported
@@ -29,7 +28,8 @@ type Product struct {
 
 // Products implements common interface for loading json data
 type Products struct {
-	products []*Product
+	products            []*Product
+	matchedProductCount int
 }
 
 // GetFileName used by JSONArchive.go
@@ -45,34 +45,6 @@ func (p *Products) Decode(decoder *json.Decoder) (err error) {
 		product.result.ProductName = product.ProductName
 		product.result.Listings = []*Listing{}
 		p.products = append(p.products, product)
-	}
-	return
-}
-
-func generateTokensFromString(value string) (tokens []string) {
-	tokenStart := 0
-	value = strings.ToLower(value)
-	var tokenIsNumeric bool
-	for i := 0; i < len(value); i++ {
-		if !(!tokenIsNumeric && value[i] >= 'a' && value[i] <= 'z' || tokenIsNumeric && value[i] >= '0' && value[i] <= '9') {
-			if tokenIsNumeric && (value[i] == ',' || value[i] == '.') && len(value) > i+1 && value[i+1] >= '0' && value[i+1] <= '9' {
-				continue
-			}
-			if i > tokenStart {
-				tokens = append(tokens, value[tokenStart:i])
-			}
-			tokenStart = i
-		}
-		if value[i] >= 'a' && value[i] <= 'z' {
-			tokenIsNumeric = false
-		} else if value[i] >= '0' && value[i] <= '9' {
-			tokenIsNumeric = true
-		} else {
-			tokenStart++
-		}
-	}
-	if len(value) > tokenStart {
-		tokens = append(tokens, value[tokenStart:])
 	}
 	return
 }
@@ -98,6 +70,7 @@ func (p *Products) GetProductCount() int {
 	return len(p.products)
 }
 
+// getWeightForTokenOrderDifference gets a weight value based on the given tokenOrderDifference
 func getWeightForTokenOrderDifference(tokenOrderDifference int) (weight int) {
 	weight = 1
 	if tokenOrderDifference < 6 {
@@ -106,6 +79,7 @@ func getWeightForTokenOrderDifference(tokenOrderDifference int) (weight int) {
 	return
 }
 
+// dropIrregularlyPricedResults checked that prices for products are consistent throughout the matches and drop inconsistent results
 func (p *Products) dropIrregularlyPricedResults() {
 	// calculate the best range
 	var bestRangeStartPrice, bestRangeMaxValue, bestRangeSpread float64
@@ -156,7 +130,7 @@ func (p *Products) dropIrregularlyPricedResults() {
 		// remove all listings if weight value in spread is not high enough
 		var listing *Listing
 		if bestRangeWeightValue < totalWeight/2 {
-			fmt.Println("Warning spread out pricing for product", product.ProductName)
+			fmt.Println("Warning spread out pricing for product", product.ProductName, "could indicate bad matching. Discarding matches")
 			for _, listing = range product.result.Listings {
 				listing.match = nil
 			}
@@ -184,6 +158,7 @@ func (p *Products) dropIrregularlyPricedResults() {
 	}
 }
 
+// exportResults export the results in JSON format to the given filename
 func (p *Products) exportResults(filename string) {
 	resultsFile, err := os.Create(filename)
 	if err != nil {
@@ -192,11 +167,14 @@ func (p *Products) exportResults(filename string) {
 	}
 	defer resultsFile.Close()
 	jsonEncoder := json.NewEncoder(resultsFile)
+	p.matchedProductCount = 0
 	for _, product := range p.products {
 		err = jsonEncoder.Encode(product.result)
 		if err != nil {
 			fmt.Println("Error exporting results to file", filename, ":", err)
 			os.Exit(1)
 		}
+		p.matchedProductCount += len(product.result.Listings)
 	}
+	fmt.Println("Done writing", len(p.products), "products with", p.matchedProductCount, "matched listings to", filename)
 }
