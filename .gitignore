@@ -1,3 +1,4 @@
-*.txt
+products.txt
+listings.txt
 *.gz
 *.exe
