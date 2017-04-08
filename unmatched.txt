@@ -823,7 +823,6 @@
 {"title":"Canon Digital Rebel XTi 10.1MP Digital SLR Camera (Silver Body Only)","manufacturer":"Canon","currency":"USD","price":"425.00"}
 {"title":"Canon Digital Rebel XTi 10.1MP Digital SLR Camera (Silver Body Only)","manufacturer":"Canon","currency":"USD","price":"723.99"}
 {"title":"Nikon D90 SLR Digital Camera Kit with Tamron AF28-80mm F/3.5-5.6 Aspherical Lens + Tamron AF75-300mm F/4-5.6 LD Lens + SSE Huge 8GB, Lens \u0026 Tripod Accessory Package","manufacturer":"Digital","currency":"USD","price":"1449.95"}
-{"title":"Canon EOS Kiss X4 (T2i / 550D) 18 MP CMOS APS-C Digital SLR Camera with 3 inch LCD + EF-S 18-55mm f/3.5-5.6 IS Lens (Japan Made)","manufacturer":"Canon","currency":"USD","price":"885.00"}
 {"title":"Olympus Evolt E500 8MP Digital SLR with 14-45mm f/3.5-5.6 \u0026 40-150mm f/3.5-4.5 Zuiko Lenses","manufacturer":"Olympus","currency":"USD","price":"360.00"}
 {"title":"Pentax K2000 - Digital camera - SLR - 10.2 Mpix - body only - supported memory: SD, SDHC","manufacturer":"Pentax","currency":"USD","price":"419.00"}
 {"title":"Pentax K2000 - Digital camera - SLR - 10.2 Mpix - body only - supported memory: SD, SDHC","manufacturer":"Pentax","currency":"USD","price":"499.95"}
@@ -1146,7 +1145,6 @@
 {"title":"Leica S2 37.5MP Interchangeable Lens Camera with 3 inch LCD with Sapphire LCD Cover Glass and Platinum Service Package","manufacturer":"Leica","currency":"USD","price":"27995.00"}
 {"title":"Leica S2 37.5MP Interchangeable Lens Camera with 3 inch LCD with Sapphire LCD Cover Glass and Platinum Service Package","manufacturer":"Leica","currency":"USD","price":"27995.00"}
 {"title":"Canon XS Digital Camera + Canon 18-55mm IS Lens + Canon 75-300mm Zoom Lens + 2x Telephoto Lens + .40x Wide Angle Fisheye Lens + +1,+2,+4,+10 Macro Close Up Kit + 2 UV Filters + 2 PL Filters + 16 GB Memory Card + Extra Battery + Holster Case + Camera Bag + 57\" Tripod + 3 Year Warranty","manufacturer":"Canon","currency":"USD","price":"842.00"}
-{"title":"Canon 550D (T2i) Digital SLR Camera + Canon Deluxe Camera Kit","manufacturer":"Canon","currency":"USD","price":"1374.00"}
 {"title":"Canon EOS 300D - Digital camera - SLR - 6.3 Mpix - body only - supported memory: CF, Microdrive","manufacturer":"Canon","currency":"USD","price":"278.86"}
 {"title":"Fujifilm FinePix S3 Pro 6.17MP Digital SLR Camera (Body Only)","manufacturer":"FUJIFILM","currency":"USD","price":"450.00"}
 {"title":"Sony Alpha A700 12.24MP Digital SLR Camera with 16-105mm Lens","manufacturer":"Sony","currency":"USD","price":"799.00"}
@@ -1206,7 +1204,6 @@
 {"title":"Nikon D90 12.3 MP Digital SLR Camera with Tamron 28-80mm f/3.5-5.6 Aspherical Lens + Tamron 75-300mm f/4-5.6 LD Lens + Rokinon 500mm F/8 Lens with 2x Converter (=1000mm) + .42x Wide Angle Lens with Macro + 16 GB Memory Card + Multi-Coated UV Filter + Multi-Coated Polarizer Filter + 50\" Tripod + 6 Piece Accessory Kit + Deluxe Camera Case + 3 Year CELLTIME Warranty Repair Contract","manufacturer":"Nikon","currency":"USD","price":"1545.95"}
 {"title":"Canon EOS Rebel XS Black SLR 10.1 MP Digital Camera with EF-S 18-55mm IS Lens + Sigma 70-300MM Macro Zoom Lens + Rokinon 500mm F/8 Lens with 2x Converter (=1000mm) + High Capacity Li-Ion Battery + 4 GB Memory Card + 50\" Titanium Anodized Tripod + 6 Piece Accessory Kit + Deluxe Padded Camera Bag + Multi-Coated Glass UV Filter + Multi-Coated Glass Polarizer Filter + 3 Year Warranty Repair Contract","manufacturer":"Canon","currency":"USD","price":"939.95"}
 {"title":"Canon EOS Rebel XS 1000D Black SLR 10.1 MP Digital Camera with Canon EF-S 18-55mm IS Lens + Canon 75-300mm f/4-5.6 Telephoto Zoom Lens + .42x Wide Angle Lens with Macro + +1, +2, +4, +10 4 Piece Macro Close Up Kit + 16 GB Memory Card + Multi-Coated UV Filter (2) + Multi-Coated Polarizer Filter + Digital Slave Flash + 50\" Titanium Anodized Tripod + Deluxe Camera Bag + 6 Piece Accessory Kit + 3 Year Warranty Repair Contract","manufacturer":"Canon","currency":"USD","price":"839.95"}
-{"title":"Canon EOS Rebel Kiss X4 (T2i/550D) EF-S 18 MP Digital Camera with Canon 18-55mm IS Lens + Canon 75-300mm Zoom Lens + High Capacity Li-Ion Battery + 4 GB Memory Card + 50\" Titanium Anodized Tripod + 6 Piece Accessory Kit + Deluxe Padded Camera Bag + Multi-Coated Glass UV Filter + Multi-Coated Glass Polarizer Filter + 3 Year CELLTIME Extended Warranty (Japan Made)","manufacturer":"Canon","currency":"USD","price":"1417.95"}
 {"title":"Canon EOS XSi 12.2 MP Digital SLR Camera with 8 Lens Deluxe Camera Outfit (BLACK)","manufacturer":"Canon","currency":"USD","price":"1049.00"}
 {"title":"Canon EOS Rebel XSI SLR 12.2 MP Digital Camera (Black) with EF-S 18-55mm IS Lens + Sigma 70-300MM Macro Zoom Lens + Rokinon 500mm F/8 Lens with 2x Converter (=1000mm) + High Capacity Li-Ion Battery + 4 GB Memory Card + 50\" Titanium Anodized Tripod + 6 Piece Accessory Kit + Deluxe Padded Camera Bag + Multi-Coated Glass UV Filter + Multi-Coated Glass Polarizer Filter + 3 Year Warranty Repair Contract","manufacturer":"Canon","currency":"USD","price":"1039.95"}
 {"title":"Canon EOS Rebel XS Black SLR 10.1 MP Digital Camera with EF-S 18-55mm IS Lens + 4 GB Memory Card + 6 Piece Accessory Kit + Camera Holster Case + Multi-Coated Glass UV Filter + 3 Year Warranty Repair Contract","manufacturer":"Canon","currency":"USD","price":"599.95"}
@@ -6527,6 +6524,7 @@
 {"title":"Panasonic DMC-TZ1BS Digital Camera [5MP, 10 X Optical Zoom, 2.5\" LCD] Silver","manufacturer":"Panasonic","currency":"GBP","price":"150.00"}
 {"title":"Panasonic Lumix DMC-FZ8 - Digital camera - compact - 7.2 Mpix - optical zoom: 12 x - supported memory: MMC, SD, SDHC - silver","manufacturer":"Panasonic","currency":"GBP","price":"125.00"}
 {"title":"Canon Powershot A 400  Digital Camera","manufacturer":"Canon","currency":"GBP","price":"50.00"}
+{"title":"Ikelite Underwater Camera Housing for Canon PowerShot SX210 IS Digital Camera","manufacturer":"Ikelite","currency":"GBP","price":"299.00"}
 {"title":"Panasonic Lumix DMC-LZ7 Silver Digital Camera","manufacturer":"Panasonic","currency":"GBP","price":"100.00"}
 {"title":"Olympus Mju 1200 Digital Camera - Black (12.0MP, 3x Optical Zoom) 2.7 inch LCD","manufacturer":"Olympus","currency":"GBP","price":"155.55"}
 {"title":"Nikon Coolpix P80 Digital Camera - Black (10.0MP, 18x Optical Zoom) 2.7 inch LCD","manufacturer":"Nikon","currency":"GBP","price":"170.00"}

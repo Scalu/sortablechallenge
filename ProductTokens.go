@@ -78,8 +78,16 @@ func (pt *ProductTokens) AddTokens(product *Product, signature []string) (tokenL
 	for _, tokenString := range signature {
 		pt.negativeIndexValue = tokenString
 		tokenIndex, _ := pt.tokenTree.Insert(pt, -1, false)
-		if !pt.tokens[tokenIndex].hasProduct(product) {
+		if product != nil && !pt.tokens[tokenIndex].hasProduct(product) {
 			pt.tokens[tokenIndex].products = append(pt.tokens[tokenIndex].products, product)
+		}
+		tokenIndexFound := false
+		for _, existingTokenIndex := range tokenList {
+			if existingTokenIndex == tokenIndex {
+				tokenIndexFound = true
+			}
+		}
+		if !tokenIndexFound {
 			tokenList = append(tokenList, tokenIndex)
 		}
 	}

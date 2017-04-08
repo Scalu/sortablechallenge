@@ -53,13 +53,14 @@ func (p *Products) Decode(decoder *json.Decoder) (err error) {
 func (p *Products) GetTokens() (productTokens *ProductTokens) {
 	productTokens = &ProductTokens{}
 	for _, product := range p.products {
-		tokenArray := []string{}
-		tokenArray = append(tokenArray, generateTokensFromString(product.Manufacturer)...)
+		tokenArray := generateTokensFromString(product.Manufacturer)
 		product.manufacturerTokenCount = len(tokenArray)
-		tokenArray = append(tokenArray, generateTokensFromString(product.Family)...)
-		product.familyTokenCount = len(tokenArray) - product.manufacturerTokenCount
-		tokenArray = append(tokenArray, generateTokensFromString(product.Model)...)
-		product.tokenList = productTokens.AddTokens(product, tokenArray)
+		product.tokenList = append(product.tokenList, productTokens.AddTokens(nil, tokenArray)...)
+		tokenArray = generateTokensFromString(product.Family)
+		product.familyTokenCount = len(tokenArray)
+		product.tokenList = append(product.tokenList, productTokens.AddTokens(nil, tokenArray)...)
+		tokenArray = generateTokensFromString(product.Model)
+		product.tokenList = append(product.tokenList, productTokens.AddTokens(product, tokenArray)...)
 	}
 	fmt.Println("Product tokens generated. ", len(p.products), " products, ", len(productTokens.tokens), " tokens")
 	return
