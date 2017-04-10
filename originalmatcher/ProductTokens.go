@@ -59,7 +59,7 @@ func (pt *ProductTokens) GetInsertValue() (index int) {
 // Search find the token index containing this string value
 func (pt *ProductTokens) Search(stringValue string) (index int) {
 	pt.negativeIndexValue = stringValue
-	index, _ = pt.tokenTree.Insert(pt, -1, true)
+	index, _ = pt.tokenTree.Insert(-1, true)
 	return
 }
 
@@ -77,7 +77,7 @@ func (pt *ProductTokens) AddTokens(product *originalProduct, signature []string)
 	//build the signature
 	for _, tokenString := range signature {
 		pt.negativeIndexValue = tokenString
-		tokenIndex, _ := pt.tokenTree.Insert(pt, -1, false)
+		tokenIndex, _ := pt.tokenTree.Insert(-1, false)
 		if product != nil && !pt.tokens[tokenIndex].hasProduct(product) {
 			pt.tokens[tokenIndex].products = append(pt.tokens[tokenIndex].products, product)
 		}

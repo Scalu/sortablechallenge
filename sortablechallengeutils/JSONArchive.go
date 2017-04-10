@@ -14,16 +14,20 @@ import (
 type JSONArchive struct {
 	ArchiveFileName  string
 	ArchiveSourceURL string
+	OsExit           func(int)
+	OsCreate         func(string) (*os.File, error)
+	OsOpen           func(string) (*os.File, error)
+	HTTPGet          func(string) (*http.Response, error)
 }
 
 // downloadArchive Download the archive file
 func (jArchive *JSONArchive) downloadArchive() (archive *os.File, err error) {
-	getPackageResponse, err := http.Get(jArchive.ArchiveSourceURL)
+	getPackageResponse, err := jArchive.HTTPGet(jArchive.ArchiveSourceURL)
 	if err != nil {
 		fmt.Println("Error while downloading archive file:", jArchive.ArchiveSourceURL, ", error:", err)
 		return nil, err
 	}
-	packageFile, err := os.Create(jArchive.ArchiveFileName)
+	packageFile, err := jArchive.OsCreate(jArchive.ArchiveFileName)
 	if err != nil {
 		fmt.Println("Error creating archive file:", jArchive.ArchiveFileName, ", error:", err)
 		return nil, err
@@ -38,13 +42,13 @@ func (jArchive *JSONArchive) downloadArchive() (archive *os.File, err error) {
 		return nil, err
 	}
 	fmt.Println(bytesWritten, "bytes downloaded to", jArchive.ArchiveFileName)
-	archive, err = os.Open(jArchive.ArchiveFileName)
+	archive, err = jArchive.OsOpen(jArchive.ArchiveFileName)
 	return archive, err
 }
 
 // extractArchiveFile extracts the given file from the archive
 func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *os.File, err error) {
-	archive, err := os.Open(jArchive.ArchiveFileName)
+	archive, err := jArchive.OsOpen(jArchive.ArchiveFileName)
 	if os.IsNotExist(err) {
 		archive, err = jArchive.downloadArchive()
 	}
@@ -71,7 +75,7 @@ func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *
 			return nil, err
 		}
 		if tarHeader.Typeflag == tar.TypeReg && tarHeader.Name == fileName {
-			newFile, err := os.Create(tarHeader.Name)
+			newFile, err := jArchive.OsCreate(tarHeader.Name)
 			if err != nil {
 				fmt.Println("Error creating", tarHeader.Name, err)
 				return nil, err
@@ -89,14 +93,14 @@ func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *
 			break
 		}
 	}
-	return os.Open(fileName)
+	return jArchive.OsOpen(fileName)
 }
 
 // ImportJSONFromArchiveFile decodes JSON data from file specified by jsonDecoder
 func (jArchive *JSONArchive) ImportJSONFromArchiveFile(fileName string, decodeFunction func(interface {
 	Decode(interface{}) error
 }) error) (err error) {
-	archivedFile, err := os.Open(fileName)
+	archivedFile, err := jArchive.OsOpen(fileName)
 	if os.IsNotExist(err) {
 		archivedFile, err = jArchive.extractArchiveFile(fileName)
 	}

@@ -1,9 +1,7 @@
 package originalmatcher
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -43,21 +41,6 @@ func (l *originalListing) GetPrice(defaultPrice float64) float64 {
 type Listings struct {
 	listings              []*originalListing
 	unmatchedProductCount int
-}
-
-// GetFileName used by JSONArchive util
-func (l *Listings) GetFileName() string {
-	return "listings.txt"
-}
-
-// Decode used by JSONArchive util
-func (l *Listings) Decode(decoder *json.Decoder) (err error) {
-	listing := &originalListing{}
-	err = decoder.Decode(&listing)
-	if err == nil {
-		l.listings = append(l.listings, listing)
-	}
-	return
 }
 
 // isSubsetOf return true if possibleSubset is a subset of possibleSuperset
@@ -212,27 +195,4 @@ func (l *Listings) MapToProducts(pt *ProductTokens) {
 			matchedProduct.result.tokenOrderDifferences = append(matchedProduct.result.tokenOrderDifferences, bestTokenOrderDifference)
 		}
 	} // end of iterating through listings
-}
-
-// exportUnmatchedListings export a list of unmatched listings to the given filename
-func (l *Listings) exportUnmatchedListings(filename string) {
-	unmatchedListingsFile, err := os.Create(filename)
-	if err != nil {
-		fmt.Println("Error creating file for unmatched listings:", err)
-		os.Exit(1)
-	}
-	defer unmatchedListingsFile.Close()
-	jsonEncoder := json.NewEncoder(unmatchedListingsFile)
-	l.unmatchedProductCount = 0
-	for _, listing := range l.listings {
-		if listing.match == nil {
-			l.unmatchedProductCount++
-			err = jsonEncoder.Encode(listing)
-			if err != nil {
-				fmt.Println("Error exporting unmatched listings to file", filename, ":", err)
-				os.Exit(1)
-			}
-		}
-	}
-	fmt.Println("Done writing", l.unmatchedProductCount, "unmatched listings to", filename)
 }

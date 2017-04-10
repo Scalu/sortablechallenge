@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -19,7 +20,11 @@ func main() {
 		matchers: []matcher{&originalmatcher.OriginalMatcher{}},
 		archive: sortablechallengeutils.JSONArchive{
 			ArchiveFileName:  "challenge_data_20110429.tar.gz",
-			ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"},
+			ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz",
+			HTTPGet:          http.Get,
+			OsOpen:           os.Open,
+			OsExit:           os.Exit,
+			OsCreate:         os.Create},
 		osExit:   os.Exit,
 		osCreate: os.Create}
 	dh.run()

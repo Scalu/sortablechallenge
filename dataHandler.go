@@ -77,8 +77,8 @@ func (dh *dataHandler) run() {
 		resultsFilename := "results.txt"
 		unmatchedFilename := "unmatched.txt"
 		if len(dh.matchers) > 1 {
-			resultsFilename = fmt.Sprintf("results_%s.txt", matcher.GetID())     // might cause an invalid filename
-			unmatchedFilename = fmt.Sprintf("unmatched_%s.txt", matcher.GetID()) // might cause an invalid filename
+			resultsFilename = fmt.Sprintf("results_%s.txt", matcher.GetID())
+			unmatchedFilename = fmt.Sprintf("unmatched_%s.txt", matcher.GetID())
 		}
 		resultsFile, resultsEncoder := dh.createFileAndJSONEncoder(resultsFilename)
 		defer resultsFile.Close()

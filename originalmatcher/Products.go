@@ -1,9 +1,9 @@
 package originalmatcher
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
+
+	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
 // originalResult contains matching results to be exported
@@ -32,26 +32,10 @@ type Products struct {
 	matchedProductCount int
 }
 
-// GetFileName used by JSONArchive.go
-func (p *Products) GetFileName() string {
-	return "products.txt"
-}
-
-// Decode used by JSONArchive.go
-func (p *Products) Decode(decoder *json.Decoder) (err error) {
-	product := &originalProduct{}
-	err = decoder.Decode(&product)
-	if err == nil {
-		product.result.ProductName = product.ProductName
-		product.result.Listings = []*originalListing{}
-		p.products = append(p.products, product)
-	}
-	return
-}
-
 // GetTokens returns a ProductTokens object initialized by the products
 func (p *Products) GetTokens() (productTokens *ProductTokens) {
 	productTokens = &ProductTokens{}
+	productTokens.tokenTree = sortablechallengeutils.BinaryTree{Comparer: productTokens}
 	for _, product := range p.products {
 		tokenArray := generateTokensFromString(product.Manufacturer)
 		product.manufacturerTokenCount = len(tokenArray)
@@ -157,25 +141,4 @@ func (p *Products) dropIrregularlyPricedResults() {
 			}
 		}
 	}
-}
-
-// exportResults export the results in JSON format to the given filename
-func (p *Products) exportResults(filename string) {
-	resultsFile, err := os.Create(filename)
-	if err != nil {
-		fmt.Println("Error creating file for unmatched listings:", err)
-		os.Exit(1)
-	}
-	defer resultsFile.Close()
-	jsonEncoder := json.NewEncoder(resultsFile)
-	p.matchedProductCount = 0
-	for _, product := range p.products {
-		err = jsonEncoder.Encode(product.result)
-		if err != nil {
-			fmt.Println("Error exporting results to file", filename, ":", err)
-			os.Exit(1)
-		}
-		p.matchedProductCount += len(product.result.Listings)
-	}
-	fmt.Println("Done writing", len(p.products), "products with", p.matchedProductCount, "matched listings to", filename)
 }
