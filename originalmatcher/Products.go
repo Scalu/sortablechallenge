@@ -1,4 +1,4 @@
-package main
+package originalmatcher
 
 import (
 	"encoding/json"
@@ -6,15 +6,15 @@ import (
 	"os"
 )
 
-// Result contains matching results to be exported
-type Result struct {
-	ProductName           string     `json:"product_name"`
-	Listings              []*Listing `json:"listings"`
+// originalResult contains matching results to be exported
+type originalResult struct {
+	ProductName           string             `json:"product_name"`
+	Listings              []*originalListing `json:"listings"`
 	tokenOrderDifferences []int
 }
 
-// Product defines the fields found in the products.txt json file
-type Product struct {
+// originalProduct defines the fields found in the products.txt json file
+type originalProduct struct {
 	ProductName            string `json:"product_name"`
 	Manufacturer           string `json:"manufacturer"`
 	Model                  string `json:"model"`
@@ -23,12 +23,12 @@ type Product struct {
 	manufacturerTokenCount int
 	familyTokenCount       int
 	tokenList              []int
-	result                 Result
+	result                 originalResult
 }
 
 // Products implements common interface for loading json data
 type Products struct {
-	products            []*Product
+	products            []*originalProduct
 	matchedProductCount int
 }
 
@@ -39,11 +39,11 @@ func (p *Products) GetFileName() string {
 
 // Decode used by JSONArchive.go
 func (p *Products) Decode(decoder *json.Decoder) (err error) {
-	product := &Product{}
+	product := &originalProduct{}
 	err = decoder.Decode(&product)
 	if err == nil {
 		product.result.ProductName = product.ProductName
-		product.result.Listings = []*Listing{}
+		product.result.Listings = []*originalListing{}
 		p.products = append(p.products, product)
 	}
 	return
@@ -87,8 +87,8 @@ func (p *Products) dropIrregularlyPricedResults() {
 	var currentRangeStartPrice, currentRangeMaxValue, currentRangeSpread float64
 	var secondListingPrice float64
 	var bestRangeWeightValue, currentRangeWeightValue, listingIndex, secondIndex, totalWeight int
-	var listing, secondListing *Listing
-	var product *Product
+	var currentListing, secondListing *originalListing
+	var product *originalProduct
 	maxRangeSpread := 2.0
 	for _, product = range p.products {
 		if len(product.result.Listings) == 0 {
@@ -99,8 +99,8 @@ func (p *Products) dropIrregularlyPricedResults() {
 		bestRangeSpread = 0.0
 		bestRangeWeightValue = 0
 		totalWeight = 0
-		for listingIndex, listing = range product.result.Listings {
-			currentRangeStartPrice = listing.GetPrice(-1.0)
+		for listingIndex, currentListing = range product.result.Listings {
+			currentRangeStartPrice = currentListing.GetPrice(-1.0)
 			if currentRangeStartPrice < 0 {
 				continue
 			}
@@ -129,13 +129,13 @@ func (p *Products) dropIrregularlyPricedResults() {
 			}
 		}
 		// remove all listings if weight value in spread is not high enough
-		var listing *Listing
+		var cuurentListing *originalListing
 		if bestRangeWeightValue < totalWeight/2 {
 			fmt.Println("Warning spread out pricing for product", product.ProductName, "could indicate bad matching. Discarding matches")
-			for _, listing = range product.result.Listings {
-				listing.match = nil
+			for _, cuurentListing = range product.result.Listings {
+				cuurentListing.match = nil
 			}
-			product.result.Listings = []*Listing{}
+			product.result.Listings = []*originalListing{}
 			product.result.tokenOrderDifferences = []int{}
 			continue
 		}
@@ -144,12 +144,12 @@ func (p *Products) dropIrregularlyPricedResults() {
 		var allowedVariance, currentListingPrice float64
 		var currentListingWeight int
 		for listingIndex < len(product.result.Listings) {
-			listing = product.result.Listings[listingIndex]
-			currentListingPrice = listing.GetPrice(-1)
+			currentListing = product.result.Listings[listingIndex]
+			currentListingPrice = currentListing.GetPrice(-1)
 			currentListingWeight = getWeightForTokenOrderDifference(product.result.tokenOrderDifferences[listingIndex])
 			allowedVariance = 1.0 + 0.05*float64(currentListingWeight)
 			if currentListingPrice < bestRangeStartPrice/allowedVariance || currentListingPrice > bestRangeMaxValue*allowedVariance {
-				listing.match = nil
+				currentListing.match = nil
 				product.result.Listings = append(product.result.Listings[:listingIndex], product.result.Listings[listingIndex+1:]...)
 				product.result.tokenOrderDifferences = append(product.result.tokenOrderDifferences[:listingIndex], product.result.tokenOrderDifferences[listingIndex+1:]...)
 			} else {

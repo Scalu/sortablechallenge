@@ -5,35 +5,22 @@ import (
 	"os"
 	"time"
 
+	"github.com/Scalu/sortablechallenge/originalmatcher"
 	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
 func main() {
 	startTime := time.Now()
 	fmt.Println("Begining sortedchallenge program at", startTime)
-	defer fmt.Println("Exiting sortedchallenge. Duration:", time.Since(startTime))
-	// load the products and listings data
-	products := Products{}
-	listings := Listings{}
-	archive := sortablechallengeutils.JSONArchive{ArchiveFileName: "challenge_data_20110429.tar.gz", ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"}
-	err := archive.ImportJSONFromArchiveFile(&products)
-	if err != nil {
-		fmt.Println("Error importing products data:", err)
-		os.Exit(1)
-	}
-	err = archive.ImportJSONFromArchiveFile(&listings)
-	if err != nil {
-		fmt.Println("Error importing listings data:", err)
-		os.Exit(1)
-	}
-	fmt.Println("Done loading JSON data.", len(products.products), "products,", len(listings.listings), "listings")
-	// generate product signatures
-	productTokens := products.GetTokens()
-	// map listings to signatures
-	listings.MapToProducts(productTokens)
-	// weed out price abberations
-	products.dropIrregularlyPricedResults()
-	// export results
-	listings.exportUnmatchedListings("unmatched.txt")
-	products.exportResults("results.txt")
+	defer func(startTime time.Time) {
+		fmt.Printf("Exiting sortedchallenge. Duration: %s\n", time.Since(startTime))
+	}(startTime)
+	dh := dataHandler{
+		matchers: []matcher{&originalmatcher.OriginalMatcher{}},
+		archive: sortablechallengeutils.JSONArchive{
+			ArchiveFileName:  "challenge_data_20110429.tar.gz",
+			ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz"},
+		osExit:   os.Exit,
+		osCreate: os.Create}
+	dh.run()
 }

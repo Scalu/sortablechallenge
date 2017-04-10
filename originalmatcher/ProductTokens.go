@@ -1,4 +1,4 @@
-package main
+package originalmatcher
 
 import (
 	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
@@ -7,11 +7,11 @@ import (
 // productToken holds the value of a token and a list of products it appears in
 type productToken struct {
 	value    string
-	products []*Product
+	products []*originalProduct
 }
 
 // hasProduct returns true if the product is already in the token's list of products that it appears in
-func (pt *productToken) hasProduct(desiredProduct *Product) bool {
+func (pt *productToken) hasProduct(desiredProduct *originalProduct) bool {
 	for _, product := range pt.products {
 		if product == desiredProduct {
 			return true
@@ -73,7 +73,7 @@ func (pt *ProductTokens) getMatchingToken(value string) (matchingToken *productT
 }
 
 // AddTokens Adds tokens to the tokens array
-func (pt *ProductTokens) AddTokens(product *Product, signature []string) (tokenList []int) {
+func (pt *ProductTokens) AddTokens(product *originalProduct, signature []string) (tokenList []int) {
 	//build the signature
 	for _, tokenString := range signature {
 		pt.negativeIndexValue = tokenString

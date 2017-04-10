@@ -1,4 +1,4 @@
-package main
+package originalmatcher
 
 import (
 	"encoding/json"
@@ -9,16 +9,16 @@ import (
 )
 
 // Listing defines the fields found in the listings.txt json file
-type Listing struct {
+type originalListing struct {
 	Title        string `json:"title"`
 	Manufacturer string `json:"manufacturer"`
 	Currency     string `json:"currency"`
 	Price        string `json:"price"`
-	match        *Product
+	match        *originalProduct
 }
 
 // GetPrice return price of item in USD
-func (l *Listing) GetPrice(defaultPrice float64) float64 {
+func (l *originalListing) GetPrice(defaultPrice float64) float64 {
 	price, err := strconv.ParseFloat(l.Price, 32)
 	if err != nil {
 		fmt.Println("Price conversion error for listing", l, err)
@@ -41,7 +41,7 @@ func (l *Listing) GetPrice(defaultPrice float64) float64 {
 // Listings struct to hold the listing data
 // implementes JSONDecoder
 type Listings struct {
-	listings              []*Listing
+	listings              []*originalListing
 	unmatchedProductCount int
 }
 
@@ -52,7 +52,7 @@ func (l *Listings) GetFileName() string {
 
 // Decode used by JSONArchive util
 func (l *Listings) Decode(decoder *json.Decoder) (err error) {
-	listing := &Listing{}
+	listing := &originalListing{}
 	err = decoder.Decode(&listing)
 	if err == nil {
 		l.listings = append(l.listings, listing)
@@ -81,7 +81,7 @@ func isSubsetOf(possibleSubset, possibleSuperset []int) bool {
 }
 
 // addPossibleMatch adds a match to a list of matches if it passes certains checks
-func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrderDifferences *[]int, listingTokens []string, possibleMatch *Product) {
+func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*originalProduct, tokenOrderDifferences *[]int, listingTokens []string, possibleMatch *originalProduct) {
 	// don't add the product if it's already in the possible matches
 	for _, existingMatch := range *possibleMatches {
 		if existingMatch == possibleMatch {
@@ -167,7 +167,7 @@ func addPossibleMatch(pt *ProductTokens, possibleMatches *[]*Product, tokenOrder
 func (l *Listings) MapToProducts(pt *ProductTokens) {
 	// get a list of matching tokens and possible matches
 	for _, listing := range l.listings {
-		possibleMatches := []*Product{}
+		possibleMatches := []*originalProduct{}
 		tokenOrderDifferences := []int{}
 		listingTokens := generateTokensFromString(listing.Title)
 		for _, listingToken := range listingTokens {
@@ -181,7 +181,7 @@ func (l *Listings) MapToProducts(pt *ProductTokens) {
 		}
 		// eliminate a match with multiple products with tokenOrderDifferences that are close in value
 		// set the match of the token order difference is below the threshhold
-		var matchedProduct *Product
+		var matchedProduct *originalProduct
 		bestTokenOrderDifference := 50
 		var tokenOrderDifference int
 		for possibleIndex, possibleProduct := range possibleMatches {

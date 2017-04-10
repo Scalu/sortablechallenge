@@ -10,13 +10,6 @@ import (
 	"os"
 )
 
-type jsonDecoder interface {
-	// GetFileName must return the filename to the file the decoder is looking for
-	GetFileName() string
-	// Decode must decode a single record from the json data input stream
-	Decode(*json.Decoder) error
-}
-
 // JSONArchive struct to hold archive file.
 type JSONArchive struct {
 	ArchiveFileName  string
@@ -100,19 +93,21 @@ func (jArchive *JSONArchive) extractArchiveFile(fileName string) (archivedfile *
 }
 
 // ImportJSONFromArchiveFile decodes JSON data from file specified by jsonDecoder
-func (jArchive *JSONArchive) ImportJSONFromArchiveFile(jDecoder jsonDecoder) (err error) {
-	archivedFile, err := os.Open(jDecoder.GetFileName())
+func (jArchive *JSONArchive) ImportJSONFromArchiveFile(fileName string, decodeFunction func(interface {
+	Decode(interface{}) error
+}) error) (err error) {
+	archivedFile, err := os.Open(fileName)
 	if os.IsNotExist(err) {
-		archivedFile, err = jArchive.extractArchiveFile(jDecoder.GetFileName())
+		archivedFile, err = jArchive.extractArchiveFile(fileName)
 	}
 	if err != nil {
-		fmt.Println("Error opening archived file:", jDecoder.GetFileName(), ", error:", err)
+		fmt.Println("Error opening archived file:", fileName, ", error:", err)
 		return err
 	}
 	defer archivedFile.Close()
 	decoder := json.NewDecoder(archivedFile)
 	for {
-		err = jDecoder.Decode(decoder)
+		err = decodeFunction(decoder)
 		if err != nil {
 			if err == io.EOF {
 				err = nil
