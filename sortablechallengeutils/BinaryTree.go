@@ -180,3 +180,67 @@ func (bt *BinaryTree) Insert(indexToValue int, searchOnly bool) (storedIndexToVa
 		node = *nextNodePtr
 	}
 }
+
+// BinaryTreeIterator use BinaryTree.GetIterator() to contruct, and can be used to traverse the nodes of the binary tree
+type BinaryTreeIterator struct {
+	binaryTree  *BinaryTree
+	currentNode *binaryTreeNode
+}
+
+// GetIterator creates an interator to traverse the nodes in a BinaryTree in their sorted order
+func (bt *BinaryTree) GetIterator() *BinaryTreeIterator {
+	return &BinaryTreeIterator{binaryTree: bt}
+}
+
+// GetNextValue returns the value, or index to a value stored by the next node
+// On a new iterator it will start with the first node
+// returns -1 if no nodes are found, or if the current node was the last node
+func (bti *BinaryTreeIterator) GetNextValue() int {
+	node := bti.currentNode
+	if node == nil {
+		node = bti.binaryTree.rootNode
+		if node == nil {
+			return -1
+		}
+		for node.leftright[0] != nil {
+			node = node.leftright[0]
+		}
+		bti.currentNode = node
+		return bti.currentNode.value
+	}
+	if node.leftright[1] != nil {
+		bti.currentNode = node.leftright[1]
+		return bti.currentNode.value
+	}
+	for node.parent != nil {
+		if node.parent.leftright[0] == node {
+			bti.currentNode = node.parent
+			return bti.currentNode.value
+		}
+		node = node.parent
+	}
+	bti.currentNode = nil
+	return -1
+}
+
+// HasNextValue returns true if there is another value after the previously accessed value
+// On a new iterator, return true as long as their are values
+func (bti *BinaryTreeIterator) HasNextValue() bool {
+	node := bti.currentNode
+	if node == nil {
+		if bti.binaryTree.rootNode == nil {
+			return false
+		}
+		return true
+	}
+	if node.leftright[1] != nil {
+		return true
+	}
+	for node.parent != nil {
+		if node.parent.leftright[0] == node {
+			return true
+		}
+		node = node.parent
+	}
+	return false
+}
