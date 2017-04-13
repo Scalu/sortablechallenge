@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/Scalu/sortablechallenge/originalmatcher"
+	"github.com/Scalu/sortablechallenge/originalmatcherplusconcurrency"
+	"github.com/Scalu/sortablechallenge/originalmatcherprefix"
 	"github.com/Scalu/sortablechallenge/sortablechallengeutils"
 )
 
@@ -17,7 +19,10 @@ func main() {
 		fmt.Printf("Exiting sortedchallenge. Duration: %s\n", time.Since(startTime))
 	}(startTime)
 	dh := dataHandler{
-		matchers: []matcher{&originalmatcher.OriginalMatcher{}},
+		matchers: []matcher{
+			&originalmatcher.OriginalMatcher{},
+			&originalmatcherprefix.OriginalMatcherPreFix{},
+			&originalmatcherplusconcurrency.OriginalMatcherPlusConcurrency{}},
 		archive: sortablechallengeutils.JSONArchive{
 			ArchiveFileName:  "challenge_data_20110429.tar.gz",
 			ArchiveSourceURL: "https://s3.amazonaws.com/sortable-public/challenge/challenge_data_20110429.tar.gz",
