@@ -11,18 +11,18 @@ import (
 func runTest(t *testing.T, values []int) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
-	binaryTree := &BinaryTreeParrallel{}
+	binaryTree := &BinaryTreeParallel{}
 	var uniqueValueCount, rebalanceCount, goroutineCount int32
 	for valueIndex, value := range values {
 		value := value
 		valueIndex := valueIndex
+		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values))
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&goroutineCount, 1)
 		go func() {
-			result := BTPInsert(binaryTree, nil, func() int {
-				atomic.AddInt32(&uniqueValueCount, 1)
-				return value
-			}, func(currentValue int) int {
+			result := BTPInsert(binaryTree, nil, func(untypedA interface{}, untypedB interface{}) int {
+				currentValue := untypedA.(int)
+				value := untypedB.(int)
 				if value < currentValue {
 					return -1
 				}
@@ -30,11 +30,11 @@ func runTest(t *testing.T, values []int) {
 					return 1
 				}
 				return 0
-			}, &insertSearchSemaphore, func() {
+			}, value, &insertSearchSemaphore, func() {
 				atomic.AddInt32(&rebalanceCount, 1)
-			}, fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values)))
-			if result != value {
-				errorChannel <- fmt.Sprintf("Returned value %d does not match value to insert %d", result, value)
+			}, &logID)
+			if result.node.value.(int) != value {
+				errorChannel <- fmt.Sprintf("Returned value %d does not match value to insert %d", result.node.value.(int), value)
 			}
 			atomic.AddInt32(&goroutineCount, -1)
 		}()
@@ -53,8 +53,11 @@ func runTest(t *testing.T, values []int) {
 		value := value
 		valueIndex := valueIndex
 		atomic.AddInt32(&goroutineCount, 1)
+		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values))
 		go func() {
-			result := BTPSearch(binaryTree, func(currentValue int) int {
+			result := BTPSearch(binaryTree, func(untypedA interface{}, untypedB interface{}) int {
+				currentValue := untypedA.(int)
+				value := untypedB.(int)
 				if value < currentValue {
 					return -1
 				}
@@ -62,9 +65,7 @@ func runTest(t *testing.T, values []int) {
 					return 1
 				}
 				return 0
-			}, &insertSearchSemaphore, func() {
-				atomic.AddInt32(&rebalanceCount, 1)
-			}, fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values)))
+			}, value, &insertSearchSemaphore, &logID)
 			if BTPGetValue(result) != value {
 				errorChannel <- fmt.Sprintf("Returned value %d does not match value to find %d", BTPGetValue(result), value)
 			}
@@ -82,7 +83,7 @@ func runTest(t *testing.T, values []int) {
 	iterator := BTPGetFirst(binaryTree)
 	previousValue := -1
 	for iterator != nil {
-		currentValue := BTPGetValue(iterator)
+		currentValue := BTPGetValue(iterator).(int)
 		if currentValue <= previousValue {
 			t.Errorf("values out of order: %d then %d", previousValue, currentValue)
 			return
@@ -93,8 +94,8 @@ func runTest(t *testing.T, values []int) {
 			t.Errorf("found value %d with unbalanced weight %d", currentValue, iterator.node.weight)
 			return
 		}
-		if iterator.node.possibleInserts > 0 {
-			t.Errorf("found value %d with %d possible inserts remaining", currentValue, iterator.node.possibleInserts)
+		if iterator.node.possibleWtAdj[0] != 0 || iterator.node.possibleWtAdj[1] != 0 {
+			t.Errorf("found value %d with %d possible inserts remaining", currentValue, iterator.node.possibleWtAdj[0]+iterator.node.possibleWtAdj[1])
 			return
 		}
 		iterator = BTPGetNext(iterator)
