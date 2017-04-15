@@ -20,6 +20,11 @@ func runTest(t *testing.T, values []int) {
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&goroutineCount, 1)
 		go func() {
+			defer func() {
+				if x := recover(); x != nil {
+					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
+				}
+			}()
 			result := BTPInsert(binaryTree, nil, func(untypedA interface{}, untypedB interface{}) int {
 				currentValue := untypedA.(int)
 				value := untypedB.(int)
@@ -33,8 +38,8 @@ func runTest(t *testing.T, values []int) {
 			}, value, &insertSearchSemaphore, func() {
 				atomic.AddInt32(&rebalanceCount, 1)
 			}, &logID)
-			if result.node.value.(int) != value {
-				errorChannel <- fmt.Sprintf("Returned value %d does not match value to insert %d", result.node.value.(int), value)
+			if result.(int) != value {
+				errorChannel <- fmt.Sprintf("%s Returned value %d does not match value to insert %d", logID, result.(int), value)
 			}
 			atomic.AddInt32(&goroutineCount, -1)
 		}()
@@ -55,6 +60,11 @@ func runTest(t *testing.T, values []int) {
 		atomic.AddInt32(&goroutineCount, 1)
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values))
 		go func() {
+			defer func() {
+				if x := recover(); x != nil {
+					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
+				}
+			}()
 			result := BTPSearch(binaryTree, func(untypedA interface{}, untypedB interface{}) int {
 				currentValue := untypedA.(int)
 				value := untypedB.(int)
@@ -66,8 +76,8 @@ func runTest(t *testing.T, values []int) {
 				}
 				return 0
 			}, value, &insertSearchSemaphore, &logID)
-			if BTPGetValue(result) != value {
-				errorChannel <- fmt.Sprintf("Returned value %d does not match value to find %d", BTPGetValue(result), value)
+			if result.(int) != value {
+				errorChannel <- fmt.Sprintf("Returned value %d does not match value to find %d", result.(int), value)
 			}
 			atomic.AddInt32(&goroutineCount, -1)
 		}()
@@ -90,12 +100,12 @@ func runTest(t *testing.T, values []int) {
 		}
 		fmt.Printf("prev %d next %d\n", previousValue, currentValue)
 		previousValue = currentValue
-		if iterator.node.weight < -1 || iterator.node.weight > 1 {
-			t.Errorf("found value %d with unbalanced weight %d", currentValue, iterator.node.weight)
+		if iterator.weight < -1 || iterator.weight > 1 {
+			t.Errorf("found value %d with unbalanced weight %d", currentValue, iterator.weight)
 			return
 		}
-		if iterator.node.possibleWtAdj[0] != 0 || iterator.node.possibleWtAdj[1] != 0 {
-			t.Errorf("found value %d with %d possible inserts remaining", currentValue, iterator.node.possibleWtAdj[0]+iterator.node.possibleWtAdj[1])
+		if iterator.possibleWtAdj[0] != 0 || iterator.possibleWtAdj[1] != 0 {
+			t.Errorf("found value %d with %d possible inserts/deletes remaining", currentValue, iterator.possibleWtAdj[0]+iterator.possibleWtAdj[1])
 			return
 		}
 		iterator = BTPGetNext(iterator)
