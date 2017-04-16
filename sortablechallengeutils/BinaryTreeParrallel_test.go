@@ -8,7 +8,24 @@ import (
 	"testing"
 )
 
-func runTest(t *testing.T, values []int) {
+type binaryTreeIntValue int
+
+func (value binaryTreeIntValue) CompareTo(currentRawValue BinaryTreeValue) int {
+	currentValue := currentRawValue.(binaryTreeIntValue)
+	if value < currentValue {
+		return -1
+	}
+	if value > currentValue {
+		return 1
+	}
+	return 0
+}
+
+func (value binaryTreeIntValue) ToString() string {
+	return fmt.Sprint(value)
+}
+
+func runTest(t *testing.T, values []binaryTreeIntValue) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	binaryTree := &BinaryTreeParallel{}
@@ -25,21 +42,11 @@ func runTest(t *testing.T, values []int) {
 					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
 				}
 			}()
-			result := BTPInsert(binaryTree, nil, func(untypedA interface{}, untypedB interface{}) int {
-				currentValue := untypedA.(int)
-				value := untypedB.(int)
-				if value < currentValue {
-					return -1
-				}
-				if value > currentValue {
-					return 1
-				}
-				return 0
-			}, value, &insertSearchSemaphore, func() {
+			result := BTPInsert(binaryTree, value, &insertSearchSemaphore, func() {
 				atomic.AddInt32(&rebalanceCount, 1)
 			}, &logID)
-			if result.(int) != value {
-				errorChannel <- fmt.Sprintf("%s Returned value %d does not match value to insert %d", logID, result.(int), value)
+			if value.CompareTo(result) != 0 {
+				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
 			}
 			atomic.AddInt32(&goroutineCount, -1)
 		}()
@@ -65,19 +72,9 @@ func runTest(t *testing.T, values []int) {
 					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
 				}
 			}()
-			result := BTPSearch(binaryTree, func(untypedA interface{}, untypedB interface{}) int {
-				currentValue := untypedA.(int)
-				value := untypedB.(int)
-				if value < currentValue {
-					return -1
-				}
-				if value > currentValue {
-					return 1
-				}
-				return 0
-			}, value, &insertSearchSemaphore, &logID)
-			if result.(int) != value {
-				errorChannel <- fmt.Sprintf("Returned value %d does not match value to find %d", result.(int), value)
+			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, &logID)
+			if value.CompareTo(result) != 0 {
+				errorChannel <- fmt.Sprintf("Returned value %s does not match value to find %s", result.ToString(), value.ToString())
 			}
 			atomic.AddInt32(&goroutineCount, -1)
 		}()
@@ -91,21 +88,22 @@ func runTest(t *testing.T, values []int) {
 	}
 	// validate the data structure
 	iterator := BTPGetFirst(binaryTree)
-	previousValue := -1
+	var previousValue binaryTreeIntValue
+	previousValue = -1
 	for iterator != nil {
-		currentValue := BTPGetValue(iterator).(int)
-		if currentValue <= previousValue {
+		currentValue := iterator.value.(binaryTreeIntValue)
+		if currentValue.CompareTo(previousValue) != 1 {
 			t.Errorf("values out of order: %d then %d", previousValue, currentValue)
 			return
 		}
 		fmt.Printf("prev %d next %d\n", previousValue, currentValue)
 		previousValue = currentValue
-		if iterator.weight < -1 || iterator.weight > 1 {
-			t.Errorf("found value %d with unbalanced weight %d", currentValue, iterator.weight)
+		if iterator.currentWeight < -1 || iterator.currentWeight > 1 {
+			t.Errorf("found value %d with unbalanced weight %d", currentValue, iterator.currentWeight)
 			return
 		}
-		if iterator.possibleWtAdj[0] != 0 || iterator.possibleWtAdj[1] != 0 {
-			t.Errorf("found value %d with %d possible inserts/deletes remaining", currentValue, iterator.possibleWtAdj[0]+iterator.possibleWtAdj[1])
+		if iterator.possibleWtAdjust[0] != 0 || iterator.possibleWtAdjust[1] != 0 {
+			t.Errorf("found value %d with %d possible inserts/deletes remaining", currentValue, iterator.possibleWtAdjust[0]+iterator.possibleWtAdjust[1])
 			return
 		}
 		iterator = BTPGetNext(iterator)
@@ -116,39 +114,40 @@ func runTest(t *testing.T, values []int) {
 // We will check the correctness of the tree's structure after indexing values.
 
 func TestSortSingleValue(t *testing.T) {
-	runTest(t, []int{1})
+	runTest(t, []binaryTreeIntValue{1})
 }
 
 func TestSortBalancedValues(t *testing.T) {
-	runTest(t, []int{2, 1, 3})
+	runTest(t, []binaryTreeIntValue{2, 1, 3})
 }
 
 func TestSortUnbalancedValuesAscending(t *testing.T) {
-	runTest(t, []int{1, 2, 3})
+	runTest(t, []binaryTreeIntValue{1, 2, 3})
 }
 
 func TestSortUnbalancedValuesDescending(t *testing.T) {
-	runTest(t, []int{3, 2, 1})
+	runTest(t, []binaryTreeIntValue{3, 2, 1})
 }
 
 func TestSortUnbalancedValuesMostlyAscending(t *testing.T) {
-	runTest(t, []int{2, 1, 3, 4, 5})
+	runTest(t, []binaryTreeIntValue{2, 1, 3, 4, 5})
 }
 
 func TestSortUnbalancedValuesMostlyDescending(t *testing.T) {
-	runTest(t, []int{4, 5, 3, 2, 1})
+	runTest(t, []binaryTreeIntValue{4, 5, 3, 2, 1})
 }
 
 func TestSortUnbalancedValuesComplex(t *testing.T) {
-	runTest(t, []int{6, 2, 9, 4, 7, 1, 8, 3, 5})
+	runTest(t, []binaryTreeIntValue{6, 2, 9, 4, 7, 1, 8, 3, 5})
 }
 
 func runRandomTest(t *testing.T, numberOfValues int, maxValue int) {
 	// initialize the testData
-	values := []int{}
+	values := []binaryTreeIntValue{}
 	// seed the tree with random data for 100 ms
+	var randomValue binaryTreeIntValue
 	for len(values) < numberOfValues {
-		randomValue := rand.Intn(maxValue)
+		randomValue = binaryTreeIntValue(rand.Intn(maxValue))
 		values = append(values, randomValue)
 	}
 	runTest(t, values)
