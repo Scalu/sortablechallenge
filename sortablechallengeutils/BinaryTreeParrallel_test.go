@@ -28,64 +28,104 @@ func (value binaryTreeIntValue) ToString() string {
 func runTest(t *testing.T, values []binaryTreeIntValue) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
+	defer close(errorChannel)
 	binaryTree := &BinaryTreeParallel{}
-	var uniqueValueCount, rebalanceCount, goroutineCount int32
+	var uniqueValueCount, rebalanceCount int32
+	logFunction := func(getLogLine func() string) bool {
+		if getLogLine != nil {
+			fmt.Println(getLogLine())
+		}
+		return true
+	}
+	// start the process counter
+	processCounterChannel := make(chan int)
+	defer close(processCounterChannel)
+	processCountChannel := make(chan int, 1)
+	defer close(processCountChannel)
+	go func() {
+		processCount := 0
+		returnZeroCount := false
+		okay := true
+		var countAdjustment int
+		for okay {
+			select {
+			case countAdjustment, okay = <-processCounterChannel:
+				processCount += countAdjustment
+				logFunction(func() string { return fmt.Sprintf("Process count: %d", processCount) })
+				if processCount == 0 && returnZeroCount {
+					processCountChannel <- processCount
+					returnZeroCount = false
+				}
+			case <-processCountChannel:
+				if processCount == 0 {
+					processCountChannel <- processCount
+				} else {
+					returnZeroCount = true
+				}
+			}
+		}
+	}()
+	// insert values
 	for valueIndex, value := range values {
 		value := value
 		valueIndex := valueIndex
-		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values))
+		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
+		logFunction := btpSetLogFunction(logFunction, logID)
 		insertSearchSemaphore.Lock()
-		atomic.AddInt32(&goroutineCount, 1)
+		processCounterChannel <- 1
 		go func() {
 			defer func() {
+				processCounterChannel <- -1
 				if x := recover(); x != nil {
 					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
 				}
 			}()
-			result := BTPInsert(binaryTree, value, &insertSearchSemaphore, func() {
+			result, matchFound := BTPInsert(binaryTree, value, &insertSearchSemaphore, func() {
 				atomic.AddInt32(&rebalanceCount, 1)
-			}, &logID)
-			if value.CompareTo(result) != 0 {
-				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
+			}, logFunction, processCounterChannel)
+			if !matchFound {
+				atomic.AddInt32(&uniqueValueCount, 1)
 			}
-			atomic.AddInt32(&goroutineCount, -1)
+			if value.CompareTo(result) != 0 {
+				go func() {
+					errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
+				}()
+			}
 		}()
 	}
-	for goroutineCount > 0 { // wait for inserts to finish or an error to occur
-		select {
-		case errorString := <-errorChannel:
-			panic(errorString)
-		default:
-		}
-	}
-	t.Logf("Testing with %d total values, %d unique values", len(values), uniqueValueCount)
 	// ensure that search works well
 	for valueIndex, value := range values {
 		insertSearchSemaphore.Lock()
 		value := value
-		valueIndex := valueIndex
-		atomic.AddInt32(&goroutineCount, 1)
-		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex, len(values))
+		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
+		logFunction := btpSetLogFunction(logFunction, logID)
+		processCounterChannel <- 1
 		go func() {
 			defer func() {
+				processCounterChannel <- -1
 				if x := recover(); x != nil {
 					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
 				}
 			}()
-			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, &logID)
+			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, logFunction)
 			if value.CompareTo(result) != 0 {
-				errorChannel <- fmt.Sprintf("Returned value %s does not match value to find %s", result.ToString(), value.ToString())
+				go func() {
+					errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to find %s", logID, result.ToString(), value.ToString())
+				}()
 			}
-			atomic.AddInt32(&goroutineCount, -1)
 		}()
 	}
-	for goroutineCount > 0 { // wait for inserts to finish or an error to occur
-		select {
-		case errorString := <-errorChannel:
-			panic(errorString)
-		default:
-		}
+	processCountChannel <- 0 // signal process counter to return when count is zero
+	<-processCountChannel    // wait for process count to reach zero
+	select {
+	case errorString := <-errorChannel:
+		fmt.Println("ERROR:", errorString)
+		t.Error(errorString)
+		return
+	default:
 	}
+	// log unique values
+	t.Logf("Testing with %d total values, %d unique values", len(values), uniqueValueCount)
 	// validate the data structure
 	iterator := BTPGetFirst(binaryTree)
 	var previousValue binaryTreeIntValue

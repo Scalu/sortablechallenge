@@ -25,6 +25,21 @@ type BinaryTreeParallel struct {
 	rebalancing      bool
 }
 
+type btpLogFunction func(func() string) bool
+
+func btpSetLogFunction(oldLogFunction btpLogFunction, id string) (newLogFunction btpLogFunction) {
+	if !oldLogFunction(nil) {
+		return oldLogFunction
+	}
+	newLogFunction = func(getLogString func() string) (isImplemented bool) {
+		if getLogString != nil {
+			oldLogFunction(func() string { return fmt.Sprintf("%s %s", id, getLogString()) })
+		}
+		return true
+	}
+	return
+}
+
 func btpGetWeight(node *BinaryTreeParallel) int {
 	node.weightMutex.Lock()
 	defer node.weightMutex.Unlock()
@@ -48,14 +63,18 @@ func btpAdjustWeightAndPossibleWtAdj(node *BinaryTreeParallel, amount int) {
 	}
 }
 
-func btpRebalanceIfNecessary(binaryTree *BinaryTreeParallel, onRebalance func(), logID *string) {
+func btpRebalanceIfNecessary(binaryTree *BinaryTreeParallel, onRebalance func(), logFunction btpLogFunction, processCounterChannel chan int) {
 	binaryTree.weightMutex.Lock()
 	defer binaryTree.weightMutex.Unlock()
 	if !binaryTree.rebalancing &&
 		(binaryTree.currentWeight+binaryTree.possibleWtAdjust[1] < -1 ||
 			binaryTree.currentWeight-binaryTree.possibleWtAdjust[0] > 1) {
 		binaryTree.rebalancing = true
-		go btpRebalance(binaryTree, onRebalance, logID)
+		processCounterChannel <- 1
+		go func() {
+			defer func() { processCounterChannel <- -1 }()
+			btpRebalance(binaryTree, onRebalance, logFunction, processCounterChannel)
+		}()
 	}
 
 }
@@ -76,24 +95,16 @@ func btpGetNodeString(node *BinaryTreeParallel) string {
 		branchBoundaryStrings[0], branchBoundaryStrings[1], node.currentWeight, node.possibleWtAdjust[0], node.possibleWtAdjust[1])
 }
 
-func btpLock(binaryTree *BinaryTreeParallel, logID *string) {
-	if logID != nil {
-		fmt.Printf("%s Locking   %s\n", *logID, btpGetNodeString(binaryTree))
-	}
+func btpLock(binaryTree *BinaryTreeParallel, logFunction btpLogFunction) {
+	logFunction(func() string { return fmt.Sprintf("Locking   %s", btpGetNodeString(binaryTree)) })
 	binaryTree.mutex.Lock()
-	if logID != nil {
-		fmt.Printf("%s Locked    %s\n", *logID, btpGetNodeString(binaryTree))
-	}
+	logFunction(func() string { return fmt.Sprintf("Locked    %s", btpGetNodeString(binaryTree)) })
 }
 
-func btpUnlock(binaryTree *BinaryTreeParallel, logID *string) {
-	if logID != nil {
-		fmt.Printf("%s Unlocking %s\n", *logID, btpGetNodeString(binaryTree))
-	}
+func btpUnlock(binaryTree *BinaryTreeParallel, logFunction btpLogFunction) {
+	logFunction(func() string { return fmt.Sprintf("Unlocking %s", btpGetNodeString(binaryTree)) })
 	binaryTree.mutex.Unlock()
-	if logID != nil {
-		fmt.Printf("%s Unlocked  %s\n", *logID, btpGetNodeString(binaryTree))
-	}
+	logFunction(func() string { return fmt.Sprintf("Unlocked  %s", btpGetNodeString(binaryTree)) })
 }
 
 func btpGetBranchBoundary(node *BinaryTreeParallel, side int) BinaryTreeValue {
@@ -102,7 +113,7 @@ func btpGetBranchBoundary(node *BinaryTreeParallel, side int) BinaryTreeValue {
 	return node.branchBoundaries[side]
 }
 
-func btpAdjustChildBounds(node *BinaryTreeParallel, value BinaryTreeValue, logID *string) {
+func btpAdjustChildBounds(node *BinaryTreeParallel, value BinaryTreeValue) {
 	if value == nil {
 		return
 	}
@@ -118,7 +129,7 @@ func btpAdjustChildBounds(node *BinaryTreeParallel, value BinaryTreeValue, logID
 	}
 }
 
-func btpStep(binaryTree *BinaryTreeParallel, compareValues func(*BinaryTreeParallel, BinaryTreeValue) int, value BinaryTreeValue, logID *string) (nextStep *BinaryTreeParallel, matchFound bool) {
+func btpStep(binaryTree *BinaryTreeParallel, compareValues func(*BinaryTreeParallel, BinaryTreeValue) int, value BinaryTreeValue, logFunction btpLogFunction) (nextStep *BinaryTreeParallel, matchFound bool) {
 	if binaryTree == nil {
 		return // defaults to nil, false
 	}
@@ -134,11 +145,11 @@ func btpStep(binaryTree *BinaryTreeParallel, compareValues func(*BinaryTreeParal
 			nextStep = binaryTree
 			matchFound = true
 		default:
-			panic(fmt.Sprintf("%s compareValues function returned invalid comparison value %d", *logID, comparisonResult))
+			panic(fmt.Sprintf("compareValues function returned invalid comparison value %d", comparisonResult))
 		}
 		if comparisonResult != 0 {
-			btpLock(nextStep, logID)
-			btpUnlock(binaryTree, logID)
+			btpLock(nextStep, logFunction)
+			btpUnlock(binaryTree, logFunction)
 		}
 		binaryTree = nextStep
 	}
@@ -146,24 +157,24 @@ func btpStep(binaryTree *BinaryTreeParallel, compareValues func(*BinaryTreeParal
 }
 
 // BTPSearch call with a go routing for concurrency
-func BTPSearch(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, logID *string) BinaryTreeValue {
-	if logID != nil {
-		newLogString := fmt.Sprintf("%s Search", *logID)
-		logID = &newLogString
-	}
+func BTPSearch(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, logFunction btpLogFunction) BinaryTreeValue {
 	semaphoreLockCount := 0
 	defer func() {
 		if semaphoreLockCount > 0 {
-			panic(fmt.Sprintf("%s BTPSearch did not release all of it's locks", *logID))
+			panic("BTPSearch did not release all of it's locks")
 		}
 	}()
 	if binaryTree == nil {
-		panic(fmt.Sprintf("%s BTPSearch should not be called with a nil binaryTree value", *logID))
+		panic("BTPSearch should not be called with a nil binaryTree value")
 	}
-	btpLock(binaryTree, logID) // lock the current tree
+	if value == nil {
+		panic("BTPSearch should not search for a nil value")
+	}
+	logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPSearch", value.ToString()))
+	btpLock(binaryTree, logFunction) // lock the current tree
 	semaphoreLockCount++
 	defer func() {
-		btpUnlock(binaryTree, logID)
+		btpUnlock(binaryTree, logFunction)
 		semaphoreLockCount--
 	}()
 	if previousLock != nil {
@@ -172,7 +183,7 @@ func BTPSearch(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLo
 	var matchFound bool
 	binaryTree, matchFound = btpStep(binaryTree, func(binaryTree *BinaryTreeParallel, value BinaryTreeValue) int {
 		return value.CompareTo(binaryTree.value)
-	}, value, logID)
+	}, value, logFunction)
 	if matchFound {
 		return binaryTree.value
 	}
@@ -180,33 +191,32 @@ func BTPSearch(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLo
 }
 
 // BTPInsert call with a go routine for concurrency
-func BTPInsert(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, onRebalance func(), logID *string) BinaryTreeValue {
-	if logID != nil {
-		newLogString := fmt.Sprintf("%s Insert %s", *logID, value.ToString())
-		logID = &newLogString
-	}
+func BTPInsert(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, onRebalance func(), logFunction btpLogFunction, processCounterChannel chan int) (valueInserted BinaryTreeValue, matchFound bool) {
 	semaphoreLockCount := 0
 	defer func() {
 		if semaphoreLockCount > 0 {
-			panic(fmt.Sprintf("%s BTPInsert did not release all of it's locks", *logID))
+			panic("BTPInsert did not release all of it's locks")
 		}
 	}()
 	if binaryTree == nil {
-		panic(fmt.Sprintf("%s BTPInsert should not be called with a nil binaryTree value", *logID))
+		panic("BTPInsert should not be called with a nil binaryTree value")
 	}
+	if value == nil {
+		panic("BTPInsert should not try to insert a nil value")
+	}
+	logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPInsert", value.ToString()))
 	adjustWeights := func() {} // does nothing yet
 	defer func() { adjustWeights() }()
-	btpLock(binaryTree, logID)
+	btpLock(binaryTree, logFunction)
 	semaphoreLockCount++
 	defer func() {
-		btpUnlock(binaryTree, logID)
+		btpUnlock(binaryTree, logFunction)
 		semaphoreLockCount--
 	}()
 	if previousLock != nil {
 		previousLock.Unlock()
 		previousLock = nil
 	}
-	var matchFound bool
 	binaryTree, matchFound = btpStep(binaryTree, func(binaryTree *BinaryTreeParallel, value BinaryTreeValue) (comparisonResult int) {
 		comparisonResult = value.CompareTo(binaryTree.value)
 		if comparisonResult != 0 {
@@ -222,16 +232,14 @@ func BTPInsert(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLo
 				} else {
 					btpAdjustPossibleWtAjd(binaryTree, sideIndex, -1)
 				}
-				if logID != nil {
-					fmt.Printf("%s adjusting weights %s\n", *logID, btpGetNodeString(binaryTree))
-				}
-				btpRebalanceIfNecessary(binaryTree, onRebalance, logID)
+				logFunction(func() string { return fmt.Sprintf("adjusting weights %s", btpGetNodeString(binaryTree)) })
+				btpRebalanceIfNecessary(binaryTree, onRebalance, logFunction, processCounterChannel)
 				prevAdjustWeights()
 			}
-			btpAdjustChildBounds(binaryTree, value, logID)
+			btpAdjustChildBounds(binaryTree, value)
 		}
 		return
-	}, value, logID)
+	}, value, logFunction)
 	if binaryTree.value == nil {
 		binaryTree.value = value
 		binaryTree.branchBoundaries[0] = value
@@ -239,32 +247,32 @@ func BTPInsert(binaryTree *BinaryTreeParallel, value BinaryTreeValue, previousLo
 		binaryTree.leftright[0] = &BinaryTreeParallel{parent: binaryTree}
 		binaryTree.leftright[1] = &BinaryTreeParallel{parent: binaryTree}
 	}
-	return binaryTree.value
+	return binaryTree.value, matchFound
 }
 
 // BTPDelete call with a go routine for concurrency
-func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, onRebalance func(), mustMatch bool, logID *string) {
-	if logID != nil {
-		newLogString := fmt.Sprintf("%s Delete %s", *logID, value.ToString())
-		logID = &newLogString
-	}
+func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sync.Mutex, onRebalance func(), mustMatch bool, logFunction btpLogFunction, processCounterChannel chan int) {
 	semaphoreLockCount := 0
 	defer func() {
 		if semaphoreLockCount > 0 {
-			panic(fmt.Sprintf("%s BTPDelete did not release all of it's locks", *logID))
+			panic("BTPDelete did not release all of it's locks")
 		}
 	}()
 	if node == nil {
-		panic(fmt.Sprintf("%s BTPDelete should not be called with a nil node value", *logID))
+		panic("BTPDelete should not be called with a nil node value")
 	}
+	if value == nil {
+		panic("BTPDelete should not try to delete a nil value")
+	}
+	logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPDelete", value.ToString()))
 	adjustWeights := func() {} // does nothing yet
 	defer func() { adjustWeights() }()
 	adjustChildBounds := func() {} // does nothing for now
 	defer func() { adjustChildBounds() }()
-	btpLock(node, logID)
+	btpLock(node, logFunction)
 	semaphoreLockCount++
 	defer func() {
-		btpUnlock(node, logID)
+		btpUnlock(node, logFunction)
 		semaphoreLockCount--
 	}()
 	if previousLock != nil {
@@ -289,22 +297,19 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 				} else {
 					btpAdjustPossibleWtAjd(binaryTree, 1-sideToDeleteFrom, -1)
 				}
-				if logID != nil {
-					fmt.Printf("%s adjusting weights %s\n", *logID, btpGetNodeString(binaryTree))
-				}
-				btpRebalanceIfNecessary(binaryTree, onRebalance, logID)
+				logFunction(func() string { return fmt.Sprintf("adjusting weights %s", btpGetNodeString(binaryTree)) })
+				btpRebalanceIfNecessary(binaryTree, onRebalance, logFunction, processCounterChannel)
 				prevAdjustWeights()
 			}
 			// check if branchBounds need to be adjusted
 			node.branchBMutices[sideToDeleteFrom].Lock()
 			if value.CompareTo(node.branchBoundaries[sideToDeleteFrom]) == 0 {
+				mustMatch = true
 				prevAdjustChildBounds := adjustChildBounds
 				adjustChildBounds = func() {
 					node.branchBoundaries[sideToDeleteFrom] = closestValues[1-sideToDeleteFrom]
 					node.branchBMutices[sideToDeleteFrom].Unlock()
-					if logID != nil {
-						fmt.Printf("%s adjusting boundaries %s\n", *logID, btpGetNodeString(binaryTree))
-					}
+					logFunction(func() string { return fmt.Sprintf("adjusting boundaries %s", btpGetNodeString(binaryTree)) })
 					prevAdjustChildBounds()
 				}
 			} else {
@@ -314,7 +319,7 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 			closestValues[1-sideToDeleteFrom] = node.value
 		}
 		return
-	}, value, logID)
+	}, value, logFunction)
 	if matchFound {
 		// adjust closest values
 		if node.leftright[0].value != nil {
@@ -330,6 +335,7 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 			node.leftright[1] = nil
 			node.branchBoundaries[0] = nil
 			node.branchBoundaries[1] = nil
+			logFunction(func() string { return fmt.Sprintf("deleted leaf %s", btpGetNodeString(node)) })
 		} else {
 			sideToDeleteFrom := 0
 			node.weightMutex.Lock()
@@ -352,39 +358,40 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 			var deleteWaitMutex sync.Mutex
 			// delete new value from old location, and wait until deletion starts before exiting
 			deleteWaitMutex.Lock()
-			go BTPDelete(node.leftright[sideToDeleteFrom], node.value, &deleteWaitMutex, onRebalance, true, logID)
+			processCounterChannel <- 1
+			go func() {
+				defer func() { processCounterChannel <- -1 }()
+				BTPDelete(node.leftright[sideToDeleteFrom], node.value, &deleteWaitMutex, onRebalance, true, logFunction, processCounterChannel)
+			}()
 			deleteWaitMutex.Lock()
+			logFunction(func() string { return fmt.Sprintf("deleted branching node %s", btpGetNodeString(node)) })
 		}
 	} else if mustMatch {
-		panic(fmt.Sprintf("%s Failed to delete a required deletion", *logID))
+		panic("Failed to delete when value was known to exist")
+	} else {
+		logFunction(func() string { return "node to delete not found" })
 	}
+
 }
 
 // btpRebalance call with a goroutine
-func btpRebalance(node *BinaryTreeParallel, onRebalance func(), logID *string) {
+func btpRebalance(node *BinaryTreeParallel, onRebalance func(), logFunction btpLogFunction, processCounterChannel chan int) {
 	semaphoreLockCount := 0
 	defer func() {
 		if semaphoreLockCount > 0 {
-			panic(fmt.Sprintf("%s btpRebalance did not release all of it's locks", *logID))
+			panic("btpRebalance did not release all of it's locks")
 		}
 	}()
 	if node == nil || node.value == nil {
-		panic(fmt.Sprintf("%s btpRebalance called on a nil value", *logID))
+		panic("btpRebalance called on a nil value")
 	}
-	if logID != nil {
-		rebalanceLogID := fmt.Sprintf("%s Rebalance", *logID)
-		logID = &rebalanceLogID
-	}
-	btpLock(node, logID)
+	logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPRebalance", node.value.ToString()))
+	btpLock(node, logFunction)
 	semaphoreLockCount++
-	if logID != nil {
-		rebalanceLogID := fmt.Sprintf("%s %s", *logID, node.value.ToString())
-		logID = &rebalanceLogID
-	}
 	defer func() {
 		node.rebalancing = false
-		btpRebalanceIfNecessary(node, onRebalance, logID)
-		btpUnlock(node, logID)
+		btpRebalanceIfNecessary(node, onRebalance, logFunction, processCounterChannel)
+		btpUnlock(node, logFunction)
 		semaphoreLockCount--
 	}()
 	node.weightMutex.Lock()
@@ -411,13 +418,18 @@ func btpRebalance(node *BinaryTreeParallel, onRebalance func(), logID *string) {
 	var deleteStartedMutex, insertStartedMutex sync.Mutex
 	// delete the newRootValue from the newRootSide
 	deleteStartedMutex.Lock()
-	go BTPDelete(node.leftright[newRootSide], newRootValue, &deleteStartedMutex, onRebalance, true, logID)
-
+	processCounterChannel <- 1
+	go func() {
+		defer func() { processCounterChannel <- -1 }()
+		BTPDelete(node.leftright[newRootSide], newRootValue, &deleteStartedMutex, onRebalance, true, logFunction, processCounterChannel)
+	}()
 	// insert the oldRootValue on the rootNewSide
 	insertStartedMutex.Lock()
-	go BTPInsert(node.leftright[rootNewSide], node.value, &insertStartedMutex, onRebalance, logID)
-	btpAdjustChildBounds(node, node.value, logID)
-
+	processCounterChannel <- 1
+	go func() {
+		defer func() { processCounterChannel <- -1 }()
+		BTPInsert(node.leftright[rootNewSide], node.value, &insertStartedMutex, onRebalance, logFunction, processCounterChannel)
+	}()
 	// wait for the insert and delete to have started before continuing
 	deleteStartedMutex.Lock()
 	insertStartedMutex.Lock()
@@ -425,7 +437,6 @@ func btpRebalance(node *BinaryTreeParallel, onRebalance func(), logID *string) {
 	// adjust the binaryTree
 	node.value = newRootValue
 	node.currentWeight += 2 * rootWeightMod
-	node.rebalancing = false
 }
 
 // BTPGetValue returns the value stored by a binary tree node
