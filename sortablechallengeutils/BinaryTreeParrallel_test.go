@@ -38,10 +38,10 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 		return true
 	}
 	// start the process counter
-	processCounterChannel := make(chan int)
-	defer close(processCounterChannel)
 	processCountChannel := make(chan int, 1)
 	defer close(processCountChannel)
+	processCounterChannel := make(chan int)
+	defer close(processCounterChannel)
 	go func() {
 		processCount := 0
 		returnZeroCount := false
@@ -50,35 +50,33 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 		for okay {
 			select {
 			case countAdjustment, okay = <-processCounterChannel:
-				processCount += countAdjustment
-				logFunction(func() string { return fmt.Sprintf("Process count: %d", processCount) })
+				if countAdjustment == 0 && okay {
+					returnZeroCount = true
+				} else {
+					processCount += countAdjustment
+					logFunction(func() string { return fmt.Sprintf("Process count: %d", processCount) })
+				}
 				if processCount == 0 && returnZeroCount {
 					processCountChannel <- processCount
 					returnZeroCount = false
-				}
-			case <-processCountChannel:
-				if processCount == 0 {
-					processCountChannel <- processCount
-				} else {
-					returnZeroCount = true
 				}
 			}
 		}
 	}()
 	// insert values
 	for valueIndex, value := range values {
+		processCounterChannel <- 1
 		value := value
 		valueIndex := valueIndex
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
 		logFunction := btpSetLogFunction(logFunction, logID)
 		insertSearchSemaphore.Lock()
-		processCounterChannel <- 1
 		go func() {
 			defer func() {
-				processCounterChannel <- -1
 				if x := recover(); x != nil {
-					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
+					errorChannel <- fmt.Sprintf("%s run time panic: %v", logID, x)
 				}
+				processCounterChannel <- -1
 			}()
 			result, matchFound := BTPInsert(binaryTree, value, &insertSearchSemaphore, func() {
 				atomic.AddInt32(&rebalanceCount, 1)
@@ -87,42 +85,48 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 				atomic.AddInt32(&uniqueValueCount, 1)
 			}
 			if value.CompareTo(result) != 0 {
-				go func() {
-					errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
-				}()
+				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
 			}
 		}()
 	}
 	// ensure that search works well
 	for valueIndex, value := range values {
-		insertSearchSemaphore.Lock()
+		processCounterChannel <- 1
 		value := value
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
 		logFunction := btpSetLogFunction(logFunction, logID)
-		processCounterChannel <- 1
+		insertSearchSemaphore.Lock()
 		go func() {
 			defer func() {
-				processCounterChannel <- -1
 				if x := recover(); x != nil {
-					panic(fmt.Sprintf("%s run time panic: %v", logID, x))
+					errorChannel <- fmt.Sprintf("%s run time panic: %v", logID, x)
 				}
+				processCounterChannel <- -1
 			}()
 			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, logFunction)
 			if value.CompareTo(result) != 0 {
-				go func() {
-					errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to find %s", logID, result.ToString(), value.ToString())
-				}()
+				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to find %s", logID, result.ToString(), value.ToString())
 			}
 		}()
 	}
-	processCountChannel <- 0 // signal process counter to return when count is zero
-	<-processCountChannel    // wait for process count to reach zero
-	select {
-	case errorString := <-errorChannel:
-		fmt.Println("ERROR:", errorString)
-		t.Error(errorString)
+	processCounterChannel <- 0 // signal process counter to return when count is zero
+	// wait for process count to reach zero, or an error to occur
+	var firstError string
+	var processCountReceived bool
+	for !processCountReceived {
+		select {
+		case <-processCountChannel:
+			processCountReceived = true
+		case errorString := <-errorChannel:
+			if len(firstError) == 0 {
+				firstError = errorString
+			}
+			fmt.Println("ERROR:", errorString)
+		}
+	}
+	if len(firstError) > 0 {
+		t.Error(firstError)
 		return
-	default:
 	}
 	// log unique values
 	t.Logf("Testing with %d total values, %d unique values", len(values), uniqueValueCount)
@@ -206,5 +210,5 @@ func TestSortMoreRandomData(t *testing.T) {
 }
 
 func TestSortLotsOfRandomData(t *testing.T) {
-	//runRandomTest(t, 400, 200)
+	runRandomTest(t, 400, 200)
 }
