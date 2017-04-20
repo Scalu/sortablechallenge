@@ -74,7 +74,8 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 		go func() {
 			defer func() {
 				if x := recover(); x != nil {
-					errorChannel <- fmt.Sprintf("%s run time panic: %v", logID, x)
+					logFunction(func() string { return fmt.Sprintf("run time panic: %v", x) })
+					panic(x)
 				}
 				processCounterChannel <- -1
 			}()
@@ -83,6 +84,10 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 			}, logFunction, processCounterChannel)
 			if !matchFound {
 				atomic.AddInt32(&uniqueValueCount, 1)
+			}
+			if result == nil {
+				logFunction(func() string { return "Invalid nil result" })
+				panic("Invalid nil result")
 			}
 			if value.CompareTo(result) != 0 {
 				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
@@ -99,11 +104,16 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 		go func() {
 			defer func() {
 				if x := recover(); x != nil {
-					errorChannel <- fmt.Sprintf("%s run time panic: %v", logID, x)
+					logFunction(func() string { return fmt.Sprintf("run time panic: %v", x) })
+					panic(x)
 				}
 				processCounterChannel <- -1
 			}()
 			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, logFunction)
+			if result == nil {
+				logFunction(func() string { return "Invalid nil result" })
+				panic("Invalid nil result")
+			}
 			if value.CompareTo(result) != 0 {
 				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to find %s", logID, result.ToString(), value.ToString())
 			}
@@ -148,6 +158,22 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 		}
 		if iterator.possibleWtAdjust[0] != 0 || iterator.possibleWtAdjust[1] != 0 {
 			t.Errorf("found value %d with %d possible inserts/deletes remaining", currentValue, iterator.possibleWtAdjust[0]+iterator.possibleWtAdjust[1])
+			return
+		}
+		if iterator.leftright[0].branchBoundaries[0] != nil && iterator.branchBoundaries[0] != iterator.leftright[0].branchBoundaries[0] {
+			t.Errorf("mismatched left branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], iterator.value)
+			return
+		}
+		if iterator.leftright[0].branchBoundaries[0] == nil && iterator.branchBoundaries[0] != iterator.value {
+			t.Errorf("invalid left branch boundary %d should equal node value %d", iterator.branchBoundaries[0], iterator.value)
+			return
+		}
+		if iterator.leftright[1].branchBoundaries[1] != nil && iterator.branchBoundaries[1] != iterator.leftright[1].branchBoundaries[1] {
+			t.Errorf("mismatched right branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], iterator.value)
+			return
+		}
+		if iterator.leftright[1].branchBoundaries[1] == nil && iterator.branchBoundaries[1] != iterator.value {
+			t.Errorf("invalid right branch boundary %d should equal node value %d", iterator.branchBoundaries[1], iterator.value)
 			return
 		}
 		iterator = BTPGetNext(iterator)
