@@ -343,8 +343,8 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 	}
 	var matchFound bool
 	var closestValues [2]BinaryTreeValue
-	node, matchFound = btpStep(node, func(node *BinaryTreeParallel, value BinaryTreeValue) (comparisonResult int) {
-		comparisonResult = value.CompareTo(node.value)
+	node, matchFound = btpStep(node, func(node *BinaryTreeParallel, value BinaryTreeValue) int {
+		comparisonResult := value.CompareTo(node.value)
 		if comparisonResult != 0 {
 			sideToDeleteFrom := 0
 			if comparisonResult > 0 {
@@ -354,6 +354,7 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 			btpAdjustPossibleWtAdj(node, 1-sideToDeleteFrom, 1, logFunction, &semaphoreLockCount)
 			prevAdjustWeights := adjustWeights
 			adjustWeights = func() {
+				prevAdjustWeights()
 				if matchFound {
 					btpAdjustWeightAndPossibleWtAdj(node, 0-comparisonResult, logFunction, &semaphoreLockCount)
 				} else {
@@ -361,17 +362,16 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 				}
 				logFunction(func() string { return fmt.Sprintf("adjusted weights %s", btpGetNodeString(node)) })
 				btpRebalanceIfNecessary(node, onRebalance, logFunction, processCounterChannel, &semaphoreLockCount)
-				prevAdjustWeights()
 			}
 			// check if branchBounds need to be adjusted
 			if value.CompareTo(node.branchBoundaries[sideToDeleteFrom]) == 0 {
 				mustMatch = true
 				prevAdjustChildBounds := adjustChildBounds
 				adjustChildBounds = func() {
+					prevAdjustChildBounds()
 					node.branchBoundaries[sideToDeleteFrom] = closestValues[1-sideToDeleteFrom]
 					node.branchBMutices[sideToDeleteFrom].Unlock(logFunction, &semaphoreLockCount)
 					logFunction(func() string { return fmt.Sprintf("adjusted boundaries %s", btpGetNodeString(node)) })
-					prevAdjustChildBounds()
 				}
 			} else {
 				node.branchBMutices[sideToDeleteFrom].Unlock(logFunction, &semaphoreLockCount)
@@ -382,9 +382,11 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 			node.leftright[sideToDeleteFrom].branchBMutices[1].Lock(logFunction, &semaphoreLockCount)
 			node.branchBMutices[1-sideToDeleteFrom].Unlock(logFunction, &semaphoreLockCount)
 		}
-		return
+		return comparisonResult
 	}, value, logFunction, &semaphoreLockCount)
 	if matchFound {
+		node.leftright[0].mutex.Lock(logFunction, &semaphoreLockCount)
+		node.leftright[1].mutex.Lock(logFunction, &semaphoreLockCount)
 		// adjust closest values
 		if node.leftright[0].value != nil {
 			closestValues[0] = btpGetBranchBoundary(node.leftright[0], 1, logFunction, &semaphoreLockCount)
@@ -394,6 +396,8 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 		}
 		// remove it
 		if node.leftright[0].value == nil && node.leftright[1].value == nil {
+			node.leftright[0].mutex.Unlock(logFunction, &semaphoreLockCount)
+			node.leftright[1].mutex.Unlock(logFunction, &semaphoreLockCount)
 			node.value = nil
 			node.leftright[0] = nil
 			node.leftright[1] = nil
@@ -403,7 +407,7 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 		} else {
 			sideToDeleteFrom := 0
 			node.weightMutex.Lock(logFunction, &semaphoreLockCount)
-			if node.currentWeight > 0 {
+			if node.currentWeight > 0 || node.currentWeight == 0 && node.possibleWtAdjust[1] > 0 {
 				node.currentWeight--
 				sideToDeleteFrom = 1
 			} else {
@@ -413,6 +417,12 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 
 			// update with new value
 			node.value = btpGetBranchBoundary(node.leftright[sideToDeleteFrom], 1-sideToDeleteFrom, logFunction, &semaphoreLockCount)
+			if node.value == nil {
+				logFunction(func() string {
+					return "Delete should not replace a deleted value that has one or more branches with a nil value"
+				})
+				panic("Delete should not replace a deleted value that has one or more branches with a nil value")
+			}
 			// update branch boundary if old value was one of them
 			if node.leftright[1-sideToDeleteFrom].value == nil {
 				node.branchBoundaries[1-sideToDeleteFrom] = node.value
@@ -425,6 +435,8 @@ func BTPDelete(node *BinaryTreeParallel, value BinaryTreeValue, previousLock *sy
 				defer func() { processCounterChannel <- -1 }()
 				BTPDelete(node.leftright[sideToDeleteFrom], node.value, &deleteWaitMutex, onRebalance, true, logFunction, processCounterChannel)
 			}()
+			node.leftright[0].mutex.Unlock(logFunction, &semaphoreLockCount)
+			node.leftright[1].mutex.Unlock(logFunction, &semaphoreLockCount)
 			deleteWaitMutex.Lock()
 			logFunction(func() string { return fmt.Sprintf("deleted branching node %s", btpGetNodeString(node)) })
 		}
@@ -466,22 +478,22 @@ func btpRebalance(node *BinaryTreeParallel, onRebalance func(), logFunction btpL
 		onRebalance()
 	}
 	newRootSide := 0            // side from which the new root node is being taken from
-	rootWeightMod := 1          // weight modifier for nodes between the current and new roots
-	rootNewSide := 1            // side where the old root node is being moved to
 	if node.currentWeight > 0 { // swap sides if the weight is positive
 		newRootSide = 1
-		rootWeightMod = -1
-		rootNewSide = 0
 	}
+	rootNewSide := 1 - newRootSide // side where the old root node is being moved to
 
 	// get the new root value
-	newRoot := node.leftright[newRootSide]
-	newRootValue := btpGetBranchBoundary(newRoot, rootNewSide, logFunction, &semaphoreLockCount)
+	newRootValue := btpGetBranchBoundary(node.leftright[newRootSide], rootNewSide, logFunction, &semaphoreLockCount)
+	if newRootValue == nil {
+		logFunction(func() string { return "BTPRebalance should not replace root's value with a nil value" })
+		panic("BTPRebalance should not replace root's value with a nil value")
+	}
 
 	// adjust the binaryTree
 	valueToInsert := node.value
 	node.value = newRootValue
-	node.currentWeight += 2 * rootWeightMod
+	node.currentWeight += 4*rootNewSide - 2
 
 	var deleteStartedMutex, insertStartedMutex sync.Mutex
 	// insert the oldRootValue on the rootNewSide
