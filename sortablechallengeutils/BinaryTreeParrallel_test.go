@@ -29,7 +29,7 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
-	binaryTree := &BinaryTreeParallel{}
+	binaryTree := &BinaryTreeParallelNode{}
 	var uniqueValueCount, rebalanceCount int32
 	/* logFunction := func(getLogLine func() string) bool {
 		if getLogLine != nil {
