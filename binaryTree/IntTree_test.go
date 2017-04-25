@@ -13,7 +13,8 @@ func runTest(t *testing.T, values []int) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
-	jobQueue := make(chan func(), runtime.GOMAXPROCS(0)*2)
+	jobQueue := make(chan func(), 4+len(values))
+	defer close(jobQueue)
 	var uniqueValueCount, rebalanceCount, jobCount int32
 	binaryTree := &IntTree{
 		StoreExtraData: false,
@@ -21,13 +22,14 @@ func runTest(t *testing.T, values []int) {
 		LaunchNewProcess: func(newProcess func()) {
 			atomic.AddInt32(&jobCount, 1)
 			jobQueue <- newProcess
-		}} /*,
-	LogFunction: func(getLogLine func() string) bool {
-		if getLogLine != nil {
-			fmt.Println(getLogLine())
-		}
-		return true
-	}}*/
+		},
+		LogFunction: func(getLogLine func() string) bool {
+			//if getLogLine != nil {
+			//	fmt.Println(getLogLine())
+			//}
+			//return true
+			return false
+		}}
 	// start the worker processes
 	workerProcess := func() {
 		var processToRun func()
@@ -50,6 +52,7 @@ func runTest(t *testing.T, values []int) {
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
 		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
 		insertSearchSemaphore.Lock()
+		atomic.AddInt32(&jobCount, 1)
 		jobQueue <- func() {
 			defer func() {
 				if x := recover(); x != nil {
@@ -57,7 +60,11 @@ func runTest(t *testing.T, values []int) {
 					panic(x)
 				}
 			}()
-			binaryTree.InsertValue(value, nil, nil, func() { insertSearchSemaphore.Unlock() })
+			binaryTree.InsertValue(value, nil, func(matchFound bool, extraData interface{}) {
+				if !matchFound {
+					atomic.AddInt32(&uniqueValueCount, 1)
+				}
+			}, func() { insertSearchSemaphore.Unlock() })
 		}
 	}
 	// ensure that search works well
@@ -66,6 +73,7 @@ func runTest(t *testing.T, values []int) {
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
 		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
 		insertSearchSemaphore.Lock()
+		atomic.AddInt32(&jobCount, 1)
 		jobQueue <- func() {
 			defer func() {
 				if x := recover(); x != nil {
@@ -122,7 +130,7 @@ func runTest(t *testing.T, values []int) {
 			t.Errorf("mismatched left branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		if iterator.leftright[0].branchBoundaries[0] == -1 && iterator.branchBoundaries[0] != binaryTree.ints[iterator.valueIndex] {
+		if iterator.leftright[0].branchBoundaries[0] == -1 && iterator.branchBoundaries[0] != iterator.valueIndex {
 			t.Errorf("invalid left branch boundary %d should equal node value %d", iterator.branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
@@ -130,7 +138,7 @@ func runTest(t *testing.T, values []int) {
 			t.Errorf("mismatched right branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		if iterator.leftright[1].branchBoundaries[1] == -1 && iterator.branchBoundaries[1] != binaryTree.ints[iterator.valueIndex] {
+		if iterator.leftright[1].branchBoundaries[1] == -1 && iterator.branchBoundaries[1] != iterator.valueIndex {
 			t.Errorf("invalid right branch boundary %d should equal node value %d", iterator.branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
@@ -202,167 +210,160 @@ func TestSort40kOfRandomData(t *testing.T) {
 }
 
 /*
-profiled the run of the current implementation, and that last test with 40k records takes 25 seconds, where my single-threaded test takes 0.1 seconds with about 30k records
-I am guessing that the different data types being stored are to blame, causing excessive GC perhaps. Also, I should limit the number of goroutines (right now hundreds of them are running simultaneously)
-I will look into this another day.
+New profile.
+Looks like the logger, even when turned off, is generating a lot of mallocs for functions.
+And gc spends a lot of time cleaning up these functions.
+Other functions being created are also causing problems.
 
 profile commands run and output:
 go test -cpuprofile=cprof github.com\Scalu\sortablechallenge\sortablechallengeutils
 go tool pprof --text sortablechallengeutils.test.exe cprof
+go tool pprof --gif binaryTree.test.exe cprof > graph.gif
 
-76.53s of 84.64s total (90.42%)
-Dropped 184 nodes (cum <= 0.42s)
+64.72s of 69.38s total (93.28%)
+Dropped 165 nodes (cum <= 0.35s)
       flat  flat%   sum%        cum   cum%
-     9.48s 11.20% 11.20%      9.51s 11.24%  runtime.stdcall2
-     8.06s  9.52% 20.72%     11.69s 13.81%  runtime.mallocgc
-     5.36s  6.33% 27.06%      5.39s  6.37%  runtime.osyield
-     5.09s  6.01% 33.07%      8.32s  9.83%  runtime.scanobject
-     4.79s  5.66% 38.73%      4.79s  5.66%  runtime.procyield
-     2.47s  2.92% 41.65%      2.47s  2.92%  runtime.memmove
-     2.33s  2.75% 44.40%      2.33s  2.75%  runtime.greyobject
-     2.18s  2.58% 46.98%      2.18s  2.58%  runtime.heapBitsSetType
-     2.03s  2.40% 49.37%      3.02s  3.57%  runtime.deferreturn
-     1.63s  1.93% 51.30%     18.43s 21.77%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete
-     1.62s  1.91% 53.21%      1.62s  1.91%  runtime.heapBitsForObject
-     1.58s  1.87% 55.08%      1.65s  1.95%  runtime.gopark
-     1.39s  1.64% 56.72%      2.19s  2.59%  sync.(*Mutex).Lock
-     1.35s  1.59% 58.32%      1.46s  1.72%  runtime.casgstatus
-     1.23s  1.45% 59.77%      5.19s  6.13%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*btpMutex).Lock
-     1.23s  1.45% 61.22%     20.40s 24.10%  runtime.lock
-     1.18s  1.39% 62.62%     21.06s 24.88%  runtime.chansend
-     0.93s  1.10% 63.72%      4.76s  5.62%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*btpMutex).Unlock
-     0.92s  1.09% 64.80%      1.13s  1.34%  sync.(*Mutex).Unlock
-     0.90s  1.06% 65.87%      3.56s  4.21%  runtime.schedule
-     0.89s  1.05% 66.92%     11.97s 14.14%  runtime.newobject
-     0.88s  1.04% 67.96%      0.88s  1.04%  runtime.memclrNoHeapPointers
-     0.86s  1.02% 68.97%      0.95s  1.12%  runtime.unlock
-     0.78s  0.92% 69.90%      0.78s  0.92%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*int).CompareTo
-     0.76s   0.9% 70.79%      0.80s  0.95%  runtime.newdefer
-     0.73s  0.86% 71.66%      1.85s  2.19%  runtime.deferproc
-     0.62s  0.73% 72.39%      0.73s  0.86%  runtime.freedefer
-     0.60s  0.71% 73.10%      4.23s  5.00%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*int).ToString
-     0.57s  0.67% 73.77%      2.22s  2.62%  runtime.goparkunlock
-     0.49s  0.58% 74.35%      0.49s  0.58%  runtime.getitab
-     0.48s  0.57% 74.92%      0.96s  1.13%  runtime.runqput
-     0.48s  0.57% 75.48%     17.33s 20.47%  runtime.systemstack
-     0.47s  0.56% 76.04%      1.19s  1.41%  runtime.pcvalue
-     0.44s  0.52% 76.56%      0.60s  0.71%  fmt.(*fmt).fmt_integer
-     0.43s  0.51% 77.07%      3.15s  3.72%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPInsert.func7
-     0.42s   0.5% 77.56%     11.62s 13.73%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance
-     0.42s   0.5% 78.06%      2.18s  2.58%  runtime.gentraceback
-     0.41s  0.48% 78.54%      0.93s  1.10%  runtime.newproc1
-     0.38s  0.45% 78.99%      6.67s  7.88%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.runTest.func2
-     0.36s  0.43% 79.42%      2.19s  2.59%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func9
-     0.34s   0.4% 79.82%      2.48s  2.93%  fmt.(*pp).printArg
-     0.34s   0.4% 80.22%      1.15s  1.36%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpGetBranchBoundary
-     0.34s   0.4% 80.62%      1.08s  1.28%  runtime.gcmarkwb_m
-     0.33s  0.39% 81.01%      0.45s  0.53%  runtime.globrunqget
-     0.31s  0.37% 81.38%     13.55s 16.01%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPInsert
-     0.31s  0.37% 81.75%      0.86s  1.02%  runtime.rawstring
-     0.30s  0.35% 82.10%      5.27s  6.23%  runtime.mcall
-     0.30s  0.35% 82.46%      2.62s  3.10%  runtime.recv
-     0.27s  0.32% 82.77%      0.62s  0.73%  runtime.writebarrierptr_prewrite1
-     0.26s  0.31% 83.08%      0.74s  0.87%  runtime.shade
-     0.24s  0.28% 83.36%     16.23s 19.18%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance.func5
-     0.24s  0.28% 83.65%      0.57s  0.67%  runtime.step
-     0.22s  0.26% 83.91%      7.39s  8.73%  runtime.gcDrainN
-     0.21s  0.25% 84.16%      0.94s  1.11%  runtime.(*mcentral).cacheSpan
-     0.21s  0.25% 84.40%      0.70s  0.83%  runtime.assertE2I2
-     0.20s  0.24% 84.64%      0.92s  1.09%  fmt.(*pp).handleMethods
-     0.20s  0.24% 84.88%      6.55s  7.74%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalanceIfNecessary
-     0.20s  0.24% 85.11%      1.49s  1.76%  runtime.ready
-     0.20s  0.24% 85.35%      0.76s   0.9%  runtime.sweepone
-     0.19s  0.22% 85.57%      0.91s  1.08%  runtime.execute
-     0.18s  0.21% 85.79%      0.64s  0.76%  runtime.semacquire
-     0.18s  0.21% 86.00%      1.26s  1.49%  runtime.writebarrierptr_prewrite1.fu
+    11.09s 15.98% 15.98%     16.58s 23.90%  runtime.mallocgc
+     9.89s 14.25% 30.24%     13.19s 19.01%  runtime.scanobject
+     3.46s  4.99% 35.23%      3.46s  4.99%  runtime.heapBitsSetType
+     2.88s  4.15% 39.38%      2.88s  4.15%  runtime.osyield
+     2.46s  3.55% 42.92%      2.49s  3.59%  runtime.greyobject
+     2.46s  3.55% 46.47%      2.46s  3.55%  runtime.heapBitsForObject
+     2.34s  3.37% 49.84%      2.34s  3.37%  runtime.procyield
+     2.23s  3.21% 53.06%      4.36s  6.28%  sync.(*Mutex).Lock
+     2.08s  3.00% 56.05%      9.39s 13.53%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*btpMutex).lock
+     1.49s  2.15% 58.20%      1.59s  2.29%  sync.(*Mutex).Unlock
+     1.37s  1.97% 60.18%      1.37s  1.97%  runtime.memclrNoHeapPointers
+     1.36s  1.96% 62.14%     18.80s 27.10%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpDelete
+     1.24s  1.79% 63.92%     23.15s 33.37%  runtime.systemstack
+     1.18s  1.70% 65.62%      7.77s 11.20%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*btpMutex).unlock
+     1.18s  1.70% 67.32%      1.26s  1.82%  runtime.writebarrierptr_prewrite1
+     0.94s  1.35% 68.68%      2.62s  3.78%  runtime.shade
+     0.91s  1.31% 69.99%     16.61s 23.94%  runtime.newobject
+     0.90s  1.30% 71.29%      3.52s  5.07%  runtime.gcmarkwb_m
+     0.83s  1.20% 72.48%      6.28s  9.05%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpInsert.func3
+     0.72s  1.04% 73.52%      0.72s  1.04%  runtime.memmove
+     0.70s  1.01% 74.53%      0.71s  1.02%  runtime.stdcall2
+     0.68s  0.98% 75.51%      1.55s  2.23%  runtime.deferreturn
+     0.59s  0.85% 76.36%      2.11s  3.04%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*intOperationManager).CompareValueTo
+     0.59s  0.85% 77.21%      0.68s  0.98%  runtime.newdefer
+     0.57s  0.82% 78.03%      3.76s  5.42%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpDelete.func7
+     0.53s  0.76% 78.80%      4.05s  5.84%  runtime.writebarrierptr_prewrite1.fu
 nc1
-     0.17s   0.2% 86.20%      2.68s  3.17%  fmt.(*pp).doPrint
-     0.16s  0.19% 86.39%     18.66s 22.05%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance.func6
-     0.16s  0.19% 86.58%      1.35s  1.59%  runtime.convT2E
-     0.15s  0.18% 86.76%      4.73s  5.59%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPInsert.func7.1
-     0.14s  0.17% 86.92%      4.92s  5.81%  fmt.Sprint
-     0.14s  0.17% 87.09%      0.55s  0.65%  fmt.newPrinter
-     0.14s  0.17% 87.25%      6.42s  7.59%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpStep
-     0.14s  0.17% 87.42%      1.53s  1.81%  runtime.goexit0
-     0.13s  0.15% 87.57%      2.13s  2.52%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalanceIfNecessary.func1.1
-     0.13s  0.15% 87.72%      4.96s  5.86%  runtime.chanrecv
-     0.13s  0.15% 87.88%      1.87s  2.21%  runtime.recvDirect
-     0.12s  0.14% 88.02%      3.31s  3.91%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func9.1
-     0.12s  0.14% 88.16%     21.19s 25.04%  runtime.chansend1
-     0.12s  0.14% 88.30%      3.26s  3.85%  runtime.park_m
-     0.12s  0.14% 88.45%      1.18s  1.39%  runtime.slicebytetostring
-     0.11s  0.13% 88.58%      1.40s  1.65%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpAdjustWeightAndPossibleWtAdj
-     0.10s  0.12% 88.69%      0.79s  0.93%  fmt.(*pp).printValue
-     0.10s  0.12% 88.81%         5s  5.91%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func12
-     0.10s  0.12% 88.93%      1.22s  1.44%  runtime.scanframeworker
-     0.09s  0.11% 89.04%      0.48s  0.57%  runtime.(*mspan).sweep
-     0.09s  0.11% 89.14%      1.57s  1.85%  runtime.goready.func1
-     0.09s  0.11% 89.25%      0.95s  1.12%  runtime.rawstringtmp
-     0.07s 0.083% 89.33%      1.50s  1.77%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpAdjustPossibleWtAdj
-     0.07s 0.083% 89.41%     13.96s 16.49%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalanceIfNecessary.func1
-     0.07s 0.083% 89.50%      0.64s  0.76%  runtime.writebarrierptr
-     0.06s 0.071% 89.57%      3.63s  4.29%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.int.ToString
-     0.06s 0.071% 89.64%      5.02s  5.93%  runtime.chanrecv2
-     0.05s 0.059% 89.70%      0.65s  0.77%  fmt.(*pp).fmtInteger
-     0.05s 0.059% 89.76%      3.37s  3.98%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func5
-     0.05s 0.059% 89.82%      0.72s  0.85%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func8
-     0.05s 0.059% 89.87%      3.95s  4.67%  runtime.gcDrain
-     0.04s 0.047% 89.92%      3.05s  3.60%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance.func5.1
-     0.04s 0.047% 89.97%      2.66s  3.14%  runtime.markroot
-     0.04s 0.047% 90.02%      0.97s  1.15%  runtime.newproc.func1
-     0.03s 0.035% 90.05%      2.04s  2.41%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPDelete.func12.1
-     0.03s 0.035% 90.09%      4.79s  5.66%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.BTPInsert.func5
-     0.03s 0.035% 90.12%         1s  1.18%  runtime.(*mcache).nextFree.func1
-     0.03s 0.035% 90.16%      0.97s  1.15%  runtime.(*mcache).refill
-     0.03s 0.035% 90.19%      0.43s  0.51%  runtime.chanrecv.func1
-     0.03s 0.035% 90.23%      0.59s   0.7%  runtime.funcspdelta
-     0.03s 0.035% 90.26%      2.39s  2.82%  runtime.scanstack
-     0.03s 0.035% 90.30%      0.67s  0.79%  sync.runtime_SemacquireMutex
-     0.02s 0.024% 90.32%      2.79s  3.30%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance.func6.1
-     0.02s 0.024% 90.35%      1.06s  1.25%  runtime.findrunnable
-     0.02s 0.024% 90.37%      7.50s  8.86%  runtime.gcAssistAlloc1
-     0.01s 0.012% 90.38%      0.78s  0.92%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.btpRebalance.func3
-     0.01s 0.012% 90.39%      7.51s  8.87%  runtime.gcAssistAlloc.func1
-     0.01s 0.012% 90.41%      1.23s  1.45%  runtime.scanstack.func1
-     0.01s 0.012% 90.42%      9.52s 11.25%  runtime.semasleep
-         0     0% 90.42%      0.84s  0.99%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.runTest.func3
-         0     0% 90.42%      1.20s  1.42%  runtime._System
-         0     0% 90.42%      3.95s  4.67%  runtime.gcBgMarkWorker.func2
-         0     0% 90.42%     61.83s 73.05%  runtime.goexit
-         0     0% 90.42%      0.61s  0.72%  runtime.gosweepone.func1
-         0     0% 90.42%      2.45s  2.89%  runtime.markroot.func1
-         0     0% 90.42%      0.63s  0.74%  runtime.pcdatavalue
-         0     0% 90.42%      2.45s  2.89%  runtime.scang
-         0     0% 90.42%     16.53s 19.53%  runtime.startTheWorldWithSema
+     0.43s  0.62% 79.42%      1.67s  2.41%  runtime.lock
+     0.38s  0.55% 79.97%      0.67s  0.97%  runtime.freedefer
+     0.36s  0.52% 80.48%     38.88s 56.04%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpRebalance
+     0.35s   0.5% 80.99%      1.67s  2.41%  fmt.(*pp).printArg
+     0.35s   0.5% 81.49%      1.19s  1.72%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpGetBranchBoundary
+     0.35s   0.5% 82.00%      0.35s   0.5%  runtime.markBits.setMarked
+     0.34s  0.49% 82.49%      0.36s  0.52%  runtime.unlock
+     0.32s  0.46% 82.95%      1.34s  1.93%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*intOperationManager).CloneWithStoredValue
+     0.30s  0.43% 83.38%      0.51s  0.74%  sync.(*Pool).pin
+     0.28s   0.4% 83.78%      0.54s  0.78%  fmt.(*fmt).fmt_integer
+     0.26s  0.37% 84.16%      0.41s  0.59%  runtime.bulkBarrierPreWrite
+     0.24s  0.35% 84.51%      1.96s  2.83%  fmt.(*pp).doPrint
+     0.24s  0.35% 84.85%     15.78s 22.74%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpInsert
+     0.24s  0.35% 85.20%      1.97s  2.84%  runtime.convT2E
+     0.24s  0.35% 85.54%      1.07s  1.54%  runtime.gcmarknewobject
+     0.24s  0.35% 85.89%      1.35s  1.95%  runtime.writebarrierptr
+     0.21s   0.3% 86.19%         1s  1.44%  runtime.deferproc
+     0.20s  0.29% 86.48%      2.72s  3.92%  runtime.(*mcentral).cacheSpan
+     0.19s  0.27% 86.75%      0.76s  1.10%  fmt.newPrinter
+     0.19s  0.27% 87.03%     12.07s 17.40%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpStep
+     0.18s  0.26% 87.29%      2.77s  3.99%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpRebalanceIfNecessary
+     0.18s  0.26% 87.55%      3.21s  4.63%  runtime.findrunnable
+     0.18s  0.26% 87.81%      6.31s  9.09%  runtime.gcDrain
+     0.17s  0.25% 88.05%      4.80s  6.92%  fmt.Sprint
+     0.17s  0.25% 88.30%      7.79s 11.23%  runtime.gcDrainN
+     0.16s  0.23% 88.53%      0.38s  0.55%  fmt.(*fmt).padString
+     0.16s  0.23% 88.76%      2.15s  3.10%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpAdjustWeightAndPossibleWtAdj
+     0.16s  0.23% 88.99%      0.58s  0.84%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpDelete.func7.2
+     0.16s  0.23% 89.22%      3.44s  4.96%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpInsert.func3.1
+     0.16s  0.23% 89.45%      1.17s  1.69%  runtime.rawstringtmp
+     0.16s  0.23% 89.68%      0.39s  0.56%  sync.(*Pool).Put
+     0.15s  0.22% 89.90%     41.69s 60.09%  github.com/Scalu/sortablechallenge/b
+inaryTree.runTest.func4
+     0.15s  0.22% 90.11%      0.87s  1.25%  runtime.sweepone
+     0.15s  0.22% 90.33%      0.69s  0.99%  runtime.typedmemmove
+     0.14s   0.2% 90.53%      0.55s  0.79%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*intOperationManager).LaunchNewProcess
+     0.14s   0.2% 90.73%      1.01s  1.46%  runtime.rawstring
+     0.14s   0.2% 90.93%      1.40s  2.02%  runtime.slicebytetostring
+     0.13s  0.19% 91.12%      0.73s  1.05%  runtime.(*mheap).alloc_m
+     0.13s  0.19% 91.31%      0.55s  0.79%  sync.(*Pool).Get
+     0.10s  0.14% 91.45%      0.61s  0.88%  fmt.(*pp).fmtString
+     0.10s  0.14% 91.60%      0.58s  0.84%  fmt.(*pp).free
+     0.10s  0.14% 91.74%      1.95s  2.81%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpDelete.func7.1
+     0.10s  0.14% 91.89%      0.38s  0.55%  runtime.(*mcentral).freeSpan
+     0.09s  0.13% 92.01%      0.76s  1.10%  runtime.(*mspan).sweep
+     0.08s  0.12% 92.13%      0.51s  0.74%  fmt.(*fmt).fmt_s
+     0.08s  0.12% 92.25%      0.62s  0.89%  fmt.(*pp).fmtInteger
+     0.07s   0.1% 92.35%      1.18s  1.70%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*intOperationManager).GetStoredValueString
+     0.07s   0.1% 92.45%      1.68s  2.42%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpAdjustPossibleWtAdj
+     0.07s   0.1% 92.55%      0.41s  0.59%  github.com/Scalu/sortablechallenge/b
+inaryTree.runTest.func2
+     0.07s   0.1% 92.65%      3.55s  5.12%  runtime.schedule
+     0.06s 0.086% 92.74%      2.78s  4.01%  runtime.runqgrab
+     0.05s 0.072% 92.81%     38.93s 56.11%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpRebalanceIfNecessary.func1
+     0.04s 0.058% 92.87%      7.90s 11.39%  runtime.gcAssistAlloc1
+     0.03s 0.043% 92.91%      0.46s  0.66%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpRebalance.func3
+     0.03s 0.043% 92.95%      2.75s  3.96%  runtime.(*mcache).refill
+     0.03s 0.043% 93.00%      1.87s  2.70%  runtime.(*mcentral).grow
+     0.03s 0.043% 93.04%      0.45s  0.65%  runtime.chanrecv
+     0.02s 0.029% 93.07%      1.96s  2.83%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*intOperationManager).GetValueString
+     0.02s 0.029% 93.10%      0.79s  1.14%  github.com/Scalu/sortablechallenge/b
+inaryTree.runTest
+     0.02s 0.029% 93.12%      1.55s  2.23%  runtime.(*mheap).alloc
+     0.02s 0.029% 93.15%      0.75s  1.08%  runtime.(*mheap).alloc.func1
+     0.02s 0.029% 93.18%      0.78s  1.12%  runtime.gosweepone.func1
+     0.02s 0.029% 93.21%      3.07s  4.42%  runtime.mcall
+     0.02s 0.029% 93.24%      2.75s  3.96%  runtime.park_m
+     0.01s 0.014% 93.25%      1.96s  2.83%  github.com/Scalu/sortablechallenge/b
+inaryTree.btpDelete.func4
+     0.01s 0.014% 93.27%      0.39s  0.56%  runtime.chansend
+     0.01s 0.014% 93.28%      2.79s  4.02%  runtime.runqsteal
+         0     0% 93.28%      2.01s  2.90%  github.com/Scalu/sortablechallenge/b
+inaryTree.(*IntTree).InsertValue
+         0     0% 93.28%      0.79s  1.14%  github.com/Scalu/sortablechallenge/b
+inaryTree.TestSort40kOfRandomData
+         0     0% 93.28%      0.79s  1.14%  github.com/Scalu/sortablechallenge/b
+inaryTree.runRandomTest
+         0     0% 93.28%      2.04s  2.94%  github.com/Scalu/sortablechallenge/b
+inaryTree.runTest.func5
+         0     0% 93.28%      2.75s  3.96%  runtime.(*mcache).nextFree.func1
+         0     0% 93.28%      1.28s  1.84%  runtime._System
+         0     0% 93.28%      0.45s  0.65%  runtime.chanrecv2
+         0     0% 93.28%      0.39s  0.56%  runtime.chansend1
+         0     0% 93.28%      7.90s 11.39%  runtime.gcAssistAlloc.func1
+         0     0% 93.28%      6.31s  9.09%  runtime.gcBgMarkWorker.func2
+         0     0% 93.28%     42.53s 61.30%  runtime.goexit
+         0     0% 93.28%      0.67s  0.97%  runtime.gopreempt_m
+         0     0% 93.28%      0.97s  1.40%  runtime.goschedImpl
+         0     0% 93.28%      0.68s  0.98%  runtime.morestack
+         0     0% 93.28%      0.68s  0.98%  runtime.newstack
+         0     0% 93.28%      0.71s  1.02%  runtime.semasleep
+         0     0% 93.28%     21.84s 31.48%  runtime.startTheWorldWithSema
+         0     0% 93.28%      1.91s  2.75%  sync.runtime_doSpin
+         0     0% 93.28%      0.79s  1.14%  testing.tRunner
 */
