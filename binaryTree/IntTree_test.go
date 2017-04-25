@@ -1,140 +1,95 @@
-package sortablechallengeutils
+package binaryTree
 
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 )
 
-type binaryTreeIntValue int
-
-func (value binaryTreeIntValue) CompareTo(currentRawValue BinaryTreeValue) int {
-	currentValue := currentRawValue.(binaryTreeIntValue)
-	if value < currentValue {
-		return -1
-	}
-	if value > currentValue {
-		return 1
-	}
-	return 0
-}
-
-func (value binaryTreeIntValue) ToString() string {
-	return fmt.Sprint(value)
-}
-
-func runTest(t *testing.T, values []binaryTreeIntValue) {
+func runTest(t *testing.T, values []int) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
-	binaryTree := &BinaryTreeParallelNode{}
-	var uniqueValueCount, rebalanceCount int32
-	/* logFunction := func(getLogLine func() string) bool {
+	jobQueue := make(chan func(), runtime.GOMAXPROCS(0)*2)
+	var uniqueValueCount, rebalanceCount, jobCount int32
+	binaryTree := &IntTree{
+		StoreExtraData: false,
+		OnRebalance:    func() { atomic.AddInt32(&rebalanceCount, 1) },
+		LaunchNewProcess: func(newProcess func()) {
+			atomic.AddInt32(&jobCount, 1)
+			jobQueue <- newProcess
+		}} /*,
+	LogFunction: func(getLogLine func() string) bool {
 		if getLogLine != nil {
 			fmt.Println(getLogLine())
 		}
 		return true
-	} */
-	logFunction := func(func() string) bool {
-		return false
-	}
-	// start the process counter
-	processCountChannel := make(chan int, 1)
-	defer close(processCountChannel)
-	processCounterChannel := make(chan int)
-	defer close(processCounterChannel)
-	go func() {
-		processCount := 0
-		returnZeroCount := false
+	}}*/
+	// start the worker processes
+	workerProcess := func() {
+		var processToRun func()
 		okay := true
-		var countAdjustment int
 		for okay {
-			select {
-			case countAdjustment, okay = <-processCounterChannel:
-				if countAdjustment == 0 && okay {
-					returnZeroCount = true
-				} else {
-					processCount += countAdjustment
-					logFunction(func() string { return fmt.Sprintf("Process count: %d", processCount) })
-				}
-				if processCount == 0 && returnZeroCount {
-					processCountChannel <- processCount
-					returnZeroCount = false
-				}
+			processToRun, okay = <-jobQueue
+			if okay {
+				processToRun()
+				atomic.AddInt32(&jobCount, -1)
 			}
 		}
-	}()
+	}
+	for numberOfWorkers := runtime.GOMAXPROCS(0); numberOfWorkers > 0; numberOfWorkers-- {
+		go workerProcess()
+	}
 	// insert values
 	for valueIndex, value := range values {
-		processCounterChannel <- 1
 		value := value
 		valueIndex := valueIndex
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
-		logFunction := btpSetLogFunction(logFunction, logID)
+		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
 		insertSearchSemaphore.Lock()
-		go func() {
+		jobQueue <- func() {
 			defer func() {
 				if x := recover(); x != nil {
 					logFunction(func() string { return fmt.Sprintf("run time panic: %v", x) })
 					panic(x)
 				}
-				processCounterChannel <- -1
 			}()
-			result, matchFound := BTPInsert(binaryTree, value, &insertSearchSemaphore, func() {
-				atomic.AddInt32(&rebalanceCount, 1)
-			}, logFunction, processCounterChannel)
-			if !matchFound {
-				atomic.AddInt32(&uniqueValueCount, 1)
-			}
-			if result == nil {
-				logFunction(func() string { return "Invalid nil result" })
-				panic("Invalid nil result")
-			}
-			if value.CompareTo(result) != 0 {
-				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to insert %s", logID, result.ToString(), value.ToString())
-			}
-		}()
+			binaryTree.InsertValue(value, nil, nil, func() { insertSearchSemaphore.Unlock() })
+		}
 	}
 	// ensure that search works well
 	for valueIndex, value := range values {
-		processCounterChannel <- 1
 		value := value
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
-		logFunction := btpSetLogFunction(logFunction, logID)
+		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
 		insertSearchSemaphore.Lock()
-		go func() {
+		jobQueue <- func() {
 			defer func() {
 				if x := recover(); x != nil {
 					logFunction(func() string { return fmt.Sprintf("run time panic: %v", x) })
 					panic(x)
 				}
-				processCounterChannel <- -1
 			}()
-			result := BTPSearch(binaryTree, value, &insertSearchSemaphore, logFunction)
-			if result == nil {
-				logFunction(func() string { return "Invalid nil result" })
-				panic("Invalid nil result")
-			}
-			if value.CompareTo(result) != 0 {
-				errorChannel <- fmt.Sprintf("%s Returned value %s does not match value to find %s", logID, result.ToString(), value.ToString())
-			}
-		}()
+			binaryTree.SearchForValue(value, func(matchFound bool, extraData interface{}) {
+				if !matchFound {
+					panic(fmt.Sprint("Did not find a match for value ", value))
+				}
+			}, func() { insertSearchSemaphore.Unlock() })
+		}
 	}
-	processCounterChannel <- 0 // signal process counter to return when count is zero
 	// wait for process count to reach zero, or an error to occur
 	var firstError string
-	var processCountReceived bool
-	for !processCountReceived {
+	for jobCount > 0 {
 		select {
-		case <-processCountChannel:
-			processCountReceived = true
 		case errorString := <-errorChannel:
 			if len(firstError) == 0 {
 				firstError = errorString
 			}
 			fmt.Println("ERROR:", errorString)
+		default:
 		}
 	}
 	if len(firstError) > 0 {
@@ -144,12 +99,12 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 	// log unique values
 	t.Logf("Testing with %d total values, %d unique values", len(values), uniqueValueCount)
 	// validate the data structure
-	iterator := BTPGetFirst(binaryTree)
-	var previousValue binaryTreeIntValue
+	iterator := btpGetFirst(binaryTree.getRootNode())
+	var previousValue int
 	previousValue = -1
 	for iterator != nil {
-		currentValue := iterator.value.(binaryTreeIntValue)
-		if currentValue.CompareTo(previousValue) != 1 {
+		currentValue := binaryTree.ints[iterator.valueIndex]
+		if currentValue <= previousValue {
 			t.Errorf("values out of order: %d then %d", previousValue, currentValue)
 			return
 		}
@@ -163,23 +118,23 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 			t.Errorf("found value %d with %d possible inserts/deletes remaining", currentValue, iterator.possibleWtAdjust[0]+iterator.possibleWtAdjust[1])
 			return
 		}
-		if iterator.leftright[0].branchBoundaries[0] != nil && iterator.branchBoundaries[0] != iterator.leftright[0].branchBoundaries[0] {
-			t.Errorf("mismatched left branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], iterator.value)
+		if iterator.leftright[0].branchBoundaries[0] != -1 && iterator.branchBoundaries[0] != iterator.leftright[0].branchBoundaries[0] {
+			t.Errorf("mismatched left branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		if iterator.leftright[0].branchBoundaries[0] == nil && iterator.branchBoundaries[0] != iterator.value {
-			t.Errorf("invalid left branch boundary %d should equal node value %d", iterator.branchBoundaries[0], iterator.value)
+		if iterator.leftright[0].branchBoundaries[0] == -1 && iterator.branchBoundaries[0] != binaryTree.ints[iterator.valueIndex] {
+			t.Errorf("invalid left branch boundary %d should equal node value %d", iterator.branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		if iterator.leftright[1].branchBoundaries[1] != nil && iterator.branchBoundaries[1] != iterator.leftright[1].branchBoundaries[1] {
-			t.Errorf("mismatched right branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], iterator.value)
+		if iterator.leftright[1].branchBoundaries[1] != -1 && iterator.branchBoundaries[1] != iterator.leftright[1].branchBoundaries[1] {
+			t.Errorf("mismatched right branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		if iterator.leftright[1].branchBoundaries[1] == nil && iterator.branchBoundaries[1] != iterator.value {
-			t.Errorf("invalid right branch boundary %d should equal node value %d", iterator.branchBoundaries[1], iterator.value)
+		if iterator.leftright[1].branchBoundaries[1] == -1 && iterator.branchBoundaries[1] != binaryTree.ints[iterator.valueIndex] {
+			t.Errorf("invalid right branch boundary %d should equal node value %d", iterator.branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
-		iterator = BTPGetNext(iterator)
+		iterator = btpGetNext(iterator)
 	}
 }
 
@@ -187,40 +142,40 @@ func runTest(t *testing.T, values []binaryTreeIntValue) {
 // We will check the correctness of the tree's structure after indexing values.
 
 func TestSortSingleValue(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{1})
+	runTest(t, []int{1})
 }
 
 func TestSortBalancedValues(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{2, 1, 3})
+	runTest(t, []int{2, 1, 3})
 }
 
 func TestSortUnbalancedValuesAscending(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{1, 2, 3})
+	runTest(t, []int{1, 2, 3})
 }
 
 func TestSortUnbalancedValuesDescending(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{3, 2, 1})
+	runTest(t, []int{3, 2, 1})
 }
 
 func TestSortUnbalancedValuesMostlyAscending(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{2, 1, 3, 4, 5})
+	runTest(t, []int{2, 1, 3, 4, 5})
 }
 
 func TestSortUnbalancedValuesMostlyDescending(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{4, 5, 3, 2, 1})
+	runTest(t, []int{4, 5, 3, 2, 1})
 }
 
 func TestSortUnbalancedValuesComplex(t *testing.T) {
-	runTest(t, []binaryTreeIntValue{6, 2, 9, 4, 7, 1, 8, 3, 5})
+	runTest(t, []int{6, 2, 9, 4, 7, 1, 8, 3, 5})
 }
 
 func runRandomTest(t *testing.T, numberOfValues int, maxValue int) {
 	// initialize the testData
-	values := []binaryTreeIntValue{}
+	values := []int{}
 	// seed the tree with random data for 100 ms
-	var randomValue binaryTreeIntValue
+	var randomValue int
 	for len(values) < numberOfValues {
-		randomValue = binaryTreeIntValue(rand.Intn(maxValue))
+		randomValue = int(rand.Intn(maxValue))
 		values = append(values, randomValue)
 	}
 	runTest(t, values)
@@ -285,12 +240,12 @@ ortablechallengeutils.(*btpMutex).Unlock
      0.88s  1.04% 67.96%      0.88s  1.04%  runtime.memclrNoHeapPointers
      0.86s  1.02% 68.97%      0.95s  1.12%  runtime.unlock
      0.78s  0.92% 69.90%      0.78s  0.92%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*binaryTreeIntValue).CompareTo
+ortablechallengeutils.(*int).CompareTo
      0.76s   0.9% 70.79%      0.80s  0.95%  runtime.newdefer
      0.73s  0.86% 71.66%      1.85s  2.19%  runtime.deferproc
      0.62s  0.73% 72.39%      0.73s  0.86%  runtime.freedefer
      0.60s  0.71% 73.10%      4.23s  5.00%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.(*binaryTreeIntValue).ToString
+ortablechallengeutils.(*int).ToString
      0.57s  0.67% 73.77%      2.22s  2.62%  runtime.goparkunlock
      0.49s  0.58% 74.35%      0.49s  0.58%  runtime.getitab
      0.48s  0.57% 74.92%      0.96s  1.13%  runtime.runqput
@@ -369,7 +324,7 @@ ortablechallengeutils.btpAdjustPossibleWtAdj
 ortablechallengeutils.btpRebalanceIfNecessary.func1
      0.07s 0.083% 89.50%      0.64s  0.76%  runtime.writebarrierptr
      0.06s 0.071% 89.57%      3.63s  4.29%  github.com/Scalu/sortablechallenge/s
-ortablechallengeutils.binaryTreeIntValue.ToString
+ortablechallengeutils.int.ToString
      0.06s 0.071% 89.64%      5.02s  5.93%  runtime.chanrecv2
      0.05s 0.059% 89.70%      0.65s  0.77%  fmt.(*pp).fmtInteger
      0.05s 0.059% 89.76%      3.37s  3.98%  github.com/Scalu/sortablechallenge/s
