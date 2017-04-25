@@ -111,7 +111,7 @@ func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
 			}
 		}
 		if st.LogFunction == nil {
-			st.LogFunction = func(getStringToLog func() string) bool {
+			st.LogFunction = func(stringToLog string) bool {
 				return false
 			}
 		}
