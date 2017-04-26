@@ -13,103 +13,105 @@ type intOperationManager struct {
 	handleResult func(int, bool)
 }
 
-func (som *intOperationManager) StoreValue() int {
-	if som.valueIndex == -1 {
-		som.st.mutex.Lock()
-		freeListLength := len(som.st.freeList)
+func (iom *intOperationManager) StoreValue() int {
+	if iom.valueIndex == -1 {
+		iom.st.mutex.Lock()
+		freeListLength := len(iom.st.freeList)
 		if freeListLength > 1 {
-			som.valueIndex = som.st.freeList[freeListLength-1]
-			som.st.freeList = som.st.freeList[:freeListLength-1]
-			som.st.ints[som.valueIndex] = som.value
-			if som.st.StoreExtraData {
-				som.st.extraData[som.valueIndex] = som.extraData
+			iom.valueIndex = iom.st.freeList[freeListLength-1]
+			iom.st.freeList = iom.st.freeList[:freeListLength-1]
+			iom.st.ints[iom.valueIndex] = iom.value
+			if iom.st.StoreExtraData {
+				iom.st.extraData[iom.valueIndex] = iom.extraData
 			}
 		} else {
-			som.valueIndex = len(som.st.ints)
-			som.st.ints = append(som.st.ints, som.value)
-			if som.st.StoreExtraData {
-				if len(som.st.extraData) != som.valueIndex {
+			iom.valueIndex = len(iom.st.ints)
+			iom.st.ints = append(iom.st.ints, iom.value)
+			if iom.st.StoreExtraData {
+				if len(iom.st.extraData) != iom.valueIndex {
 					panic("Size of extraData array should match size of String array.")
 				}
-				som.st.extraData = append(som.st.extraData, som.extraData)
+				iom.st.extraData = append(iom.st.extraData, iom.extraData)
 			}
 		}
-		som.st.mutex.Unlock()
+		iom.st.mutex.Unlock()
 	}
-	return som.valueIndex
+	return iom.valueIndex
 }
 
-func (som *intOperationManager) UpdateValue(valueIndex int) {
-	som.valueIndex = valueIndex
-	som.st.mutex.Lock()
-	som.st.ints[valueIndex] = som.value
-	som.st.mutex.Unlock()
+func (iom *intOperationManager) RestoreValue() int {
+	iom.valueIndex = -1
+	return iom.StoreValue()
 }
 
-func (som *intOperationManager) DeleteValue(valueIndex int) {
-	som.st.mutex.Lock()
-	som.st.freeList = append(som.st.freeList, valueIndex)
-	som.st.mutex.Unlock()
+func (iom *intOperationManager) DeleteValue() {
+	if iom.valueIndex > -1 {
+		iom.st.mutex.Lock()
+		iom.st.freeList = append(iom.st.freeList, iom.valueIndex)
+		iom.st.mutex.Unlock()
+		iom.valueIndex = -1
+	}
 }
 
-func (som *intOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	som.st.mutex.Lock()
-	storedValue := som.st.ints[valueIndex]
-	som.st.mutex.Unlock()
-	if som.value < storedValue {
+func (iom *intOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
+	iom.st.mutex.Lock()
+	storedValue := iom.st.ints[valueIndex]
+	iom.st.mutex.Unlock()
+	if iom.value < storedValue {
 		return -1
-	} else if som.value > storedValue {
+	} else if iom.value > storedValue {
 		return 1
+	}
+	if iom.valueIndex < 0 {
+		iom.valueIndex = valueIndex
+	} else if iom.valueIndex != valueIndex {
+		panic("value stored twice")
 	}
 	return 0
 }
 
-func (som *intOperationManager) GetValueString() string {
-	return fmt.Sprint(som.value)
+func (iom *intOperationManager) GetValueString() string {
+	return fmt.Sprint(iom.value)
 }
 
-func (som *intOperationManager) GetStoredValueString(valueIndex int) string {
-	som.st.mutex.Lock()
-	storedValue := som.st.ints[valueIndex]
-	som.st.mutex.Unlock()
+func (iom *intOperationManager) GetStoredValueString(valueIndex int) string {
+	if valueIndex < 0 {
+		return "nil"
+	}
+	iom.st.mutex.Lock()
+	storedValue := iom.st.ints[valueIndex]
+	iom.st.mutex.Unlock()
 	return fmt.Sprint(storedValue)
 }
 
-func (som *intOperationManager) CloneWithStoredValue(valueIndex int) BinaryTreeOperationManager {
-	som.st.mutex.Lock()
-	storedValue := som.st.ints[valueIndex]
-	som.st.mutex.Unlock()
-	return &intOperationManager{value: storedValue, valueIndex: valueIndex, handleResult: som.handleResult, st: som.st}
+func (iom *intOperationManager) SetValueToStoredValue(valueIndex int) {
+	iom.st.mutex.Lock()
+	iom.value = iom.st.ints[valueIndex]
+	iom.st.mutex.Unlock()
+	iom.valueIndex = valueIndex
 }
 
-func (som *intOperationManager) LaunchNewProcess(processFunction func()) {
-	som.st.LaunchNewProcess(processFunction)
-}
-
-func (som *intOperationManager) HandleResult(matchIndex int, matchFound bool) {
-	som.handleResult(matchIndex, matchFound)
+func (iom *intOperationManager) HandleResult(matchIndex int, matchFound bool) {
+	if iom.handleResult != nil {
+		iom.handleResult(matchIndex, matchFound)
+		iom.handleResult = nil
+	}
 }
 
 // IntTree a binary tree of string values
 type IntTree struct {
-	mutex            sync.Mutex
-	ints             []int
-	extraData        []interface{}
-	freeList         []int
-	rootNode         *binaryTreeConcurrentNode
-	LaunchNewProcess func(func())   // to be set if desired
-	StoreExtraData   bool           // to be set if desired
-	LogFunction      BtpLogFunction // to be set if desired
-	OnRebalance      func()         // to be set if desired
+	mutex          sync.Mutex
+	ints           []int
+	extraData      []interface{}
+	freeList       []int
+	rootNode       *binaryTreeConcurrentNode
+	StoreExtraData bool           // to be set if desired
+	LogFunction    BtpLogFunction // to be set if desired
+	OnRebalance    func()         // to be set if desired
 }
 
 func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
 	if st.rootNode == nil {
-		if st.LaunchNewProcess == nil {
-			st.LaunchNewProcess = func(processToLaunch func()) {
-				go processToLaunch()
-			}
-		}
 		if st.LogFunction == nil {
 			st.LogFunction = func(stringToLog string) bool {
 				return false

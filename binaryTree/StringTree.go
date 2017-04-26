@@ -38,17 +38,18 @@ func (som *stringOperationManager) StoreValue() int {
 	return som.valueIndex
 }
 
-func (som *stringOperationManager) UpdateValue(valueIndex int) {
-	som.valueIndex = valueIndex
-	som.st.mutex.Lock()
-	som.st.strings[valueIndex] = som.value
-	som.st.mutex.Unlock()
+func (som *stringOperationManager) RestoreValue() int {
+	som.valueIndex = -1
+	return som.StoreValue()
 }
 
-func (som *stringOperationManager) DeleteValue(valueIndex int) {
-	som.st.mutex.Lock()
-	som.st.freeList = append(som.st.freeList, valueIndex)
-	som.st.mutex.Unlock()
+func (som *stringOperationManager) DeleteValue() {
+	if som.valueIndex > -1 {
+		som.st.mutex.Lock()
+		som.st.freeList = append(som.st.freeList, som.valueIndex)
+		som.st.mutex.Unlock()
+		som.valueIndex = -1
+	}
 }
 
 func (som *stringOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
@@ -60,6 +61,11 @@ func (som *stringOperationManager) CompareValueTo(valueIndex int) (comparisonRes
 	} else if som.value > storedValue {
 		return 1
 	}
+	if som.valueIndex < 0 {
+		som.valueIndex = valueIndex
+	} else if som.valueIndex != valueIndex {
+		panic("value stored twice")
+	}
 	return 0
 }
 
@@ -68,47 +74,43 @@ func (som *stringOperationManager) GetValueString() string {
 }
 
 func (som *stringOperationManager) GetStoredValueString(valueIndex int) string {
+	if valueIndex < 0 {
+		return "nil"
+	}
 	som.st.mutex.Lock()
 	storedValue := som.st.strings[valueIndex]
 	som.st.mutex.Unlock()
 	return storedValue
 }
 
-func (som *stringOperationManager) CloneWithStoredValue(valueIndex int) BinaryTreeOperationManager {
+func (som *stringOperationManager) SetValueToStoredValue(valueIndex int) {
 	som.st.mutex.Lock()
-	storedValue := som.st.strings[valueIndex]
+	som.value = som.st.strings[valueIndex]
 	som.st.mutex.Unlock()
-	return &stringOperationManager{value: storedValue, valueIndex: valueIndex, handleResult: som.handleResult, st: som.st}
-}
-
-func (som *stringOperationManager) LaunchNewProcess(processFunction func()) {
-	som.st.LaunchNewProcess(processFunction)
+	som.valueIndex = valueIndex
 }
 
 func (som *stringOperationManager) HandleResult(matchIndex int, matchFound bool) {
-	som.handleResult(matchIndex, matchFound)
+	if som.handleResult != nil {
+		som.handleResult(matchIndex, matchFound)
+		som.handleResult = nil
+	}
 }
 
 // StringTree a binary tree of string values
 type StringTree struct {
-	mutex            sync.Mutex
-	strings          []string
-	extraData        []interface{}
-	freeList         []int
-	rootNode         *binaryTreeConcurrentNode
-	LaunchNewProcess func(func())   // to be set if desired
-	StoreExtraData   bool           // to be set if desired
-	LogFunction      BtpLogFunction // to be set if desired
-	OnRebalance      func()         // to be set if desired
+	mutex          sync.Mutex
+	strings        []string
+	extraData      []interface{}
+	freeList       []int
+	rootNode       *binaryTreeConcurrentNode
+	StoreExtraData bool           // to be set if desired
+	LogFunction    BtpLogFunction // to be set if desired
+	OnRebalance    func()         // to be set if desired
 }
 
 func (st *StringTree) getRootNode() *binaryTreeConcurrentNode {
 	if st.rootNode == nil {
-		if st.LaunchNewProcess == nil {
-			st.LaunchNewProcess = func(processToLaunch func()) {
-				go processToLaunch()
-			}
-		}
 		if st.LogFunction == nil {
 			st.LogFunction = func(stringToLog string) bool {
 				return false

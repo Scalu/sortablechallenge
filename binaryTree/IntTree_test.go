@@ -19,16 +19,12 @@ func runTest(t *testing.T, values []int) {
 	binaryTree := &IntTree{
 		StoreExtraData: false,
 		OnRebalance:    func() { atomic.AddInt32(&rebalanceCount, 1) },
-		LaunchNewProcess: func(newProcess func()) {
-			atomic.AddInt32(&jobCount, 1)
-			jobQueue <- newProcess
-		},
 		LogFunction: func(logLine string) bool {
-			//if len(logLine) != 0 {
-			//	fmt.Println(logLine)
-			//}
-			//return true
-			return false
+			if len(logLine) != 0 {
+				fmt.Println(logLine)
+			}
+			return true
+			//return false
 		}}
 	// start the worker processes
 	workerProcess := func() {
@@ -50,7 +46,10 @@ func runTest(t *testing.T, values []int) {
 		value := value
 		valueIndex := valueIndex
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
-		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
+		logFunction := binaryTree.LogFunction
+		if logFunction("") {
+			logFunction = btpSetLogFunction(binaryTree.LogFunction, logID)
+		}
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&jobCount, 1)
 		jobQueue <- func() {
@@ -73,7 +72,10 @@ func runTest(t *testing.T, values []int) {
 	for valueIndex, value := range values {
 		value := value
 		logID := fmt.Sprintf("%d (%d/%d)", value, valueIndex+1, len(values))
-		logFunction := btpSetLogFunction(binaryTree.LogFunction, logID)
+		logFunction := binaryTree.LogFunction
+		if logFunction("") {
+			logFunction = btpSetLogFunction(binaryTree.LogFunction, logID)
+		}
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&jobCount, 1)
 		jobQueue <- func() {
@@ -217,7 +219,7 @@ func TestSort40kOfRandomData(t *testing.T) {
 Fixed the logger and got a lot of performance back. Going to keep working on performance issues.
 
 profile commands run and output:
-go test -cpuprofile=cprof github.com\Scalu\sortablechallenge\sortablechallengeutils
-go tool pprof --text sortablechallengeutils.test.exe cprof > cprof.txt
+go test -cpuprofile=cprof .
+go tool pprof --text binaryTree.test.exe cprof > cprof.txt
 go tool pprof --gif binaryTree.test.exe cprof > graph.gif
 */
