@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func runTest(t *testing.T, values []int) {
+func runTest(t *testing.T, values []int, enableLogging bool) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
@@ -20,12 +20,16 @@ func runTest(t *testing.T, values []int) {
 		StoreExtraData: false,
 		OnRebalance:    func() { atomic.AddInt32(&rebalanceCount, 1) },
 		LogFunction: func(logLine string) bool {
+			return false
+		}}
+	if enableLogging {
+		binaryTree.LogFunction = func(logLine string) bool {
 			if len(logLine) != 0 {
 				fmt.Println(logLine)
 			}
 			return true
-			//return false
-		}}
+		}
+	}
 	// start the worker processes
 	workerProcess := func() {
 		var processToRun func()
@@ -133,19 +137,19 @@ func runTest(t *testing.T, values []int) {
 			return
 		}
 		if iterator.leftright[0].branchBoundaries[0] != -1 && iterator.branchBoundaries[0] != iterator.leftright[0].branchBoundaries[0] {
-			t.Errorf("mismatched left branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("mismatched left branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
 		if iterator.leftright[0].branchBoundaries[0] == -1 && iterator.branchBoundaries[0] != iterator.valueIndex {
-			t.Errorf("invalid left branch boundary %d should equal node value %d", iterator.branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("invalid left branch boundary index %d should equal node value index %d", iterator.branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
 			return
 		}
 		if iterator.leftright[1].branchBoundaries[1] != -1 && iterator.branchBoundaries[1] != iterator.leftright[1].branchBoundaries[1] {
-			t.Errorf("mismatched right branch boundaries %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("mismatched right branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
 		if iterator.leftright[1].branchBoundaries[1] == -1 && iterator.branchBoundaries[1] != iterator.valueIndex {
-			t.Errorf("invalid right branch boundary %d should equal node value %d", iterator.branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("invalid right branch boundary index %d should equal node value index %d", iterator.branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
 			return
 		}
 		iterator = btpGetNext(iterator)
@@ -156,34 +160,34 @@ func runTest(t *testing.T, values []int) {
 // We will check the correctness of the tree's structure after indexing values.
 
 func TestSortSingleValue(t *testing.T) {
-	runTest(t, []int{1})
+	runTest(t, []int{1}, false)
 }
 
 func TestSortBalancedValues(t *testing.T) {
-	runTest(t, []int{2, 1, 3})
+	runTest(t, []int{2, 1, 3}, false)
 }
 
 func TestSortUnbalancedValuesAscending(t *testing.T) {
-	runTest(t, []int{1, 2, 3})
+	runTest(t, []int{1, 2, 3}, false)
 }
 
 func TestSortUnbalancedValuesDescending(t *testing.T) {
-	runTest(t, []int{3, 2, 1})
+	runTest(t, []int{3, 2, 1}, false)
 }
 
 func TestSortUnbalancedValuesMostlyAscending(t *testing.T) {
-	runTest(t, []int{2, 1, 3, 4, 5})
+	runTest(t, []int{2, 1, 3, 4, 5}, false)
 }
 
 func TestSortUnbalancedValuesMostlyDescending(t *testing.T) {
-	runTest(t, []int{4, 5, 3, 2, 1})
+	runTest(t, []int{4, 5, 3, 2, 1}, false)
 }
 
 func TestSortUnbalancedValuesComplex(t *testing.T) {
-	runTest(t, []int{6, 2, 9, 4, 7, 1, 8, 3, 5})
+	runTest(t, []int{6, 2, 9, 4, 7, 1, 8, 3, 5}, false)
 }
 
-func runRandomTest(t *testing.T, numberOfValues int, maxValue int) {
+func runRandomTest(t *testing.T, numberOfValues int, maxValue int, enableLogging bool) {
 	// initialize the testData
 	values := []int{}
 	// seed the tree with random data for 100 ms
@@ -192,27 +196,27 @@ func runRandomTest(t *testing.T, numberOfValues int, maxValue int) {
 		randomValue = int(rand.Intn(maxValue))
 		values = append(values, randomValue)
 	}
-	runTest(t, values)
+	runTest(t, values, enableLogging)
 }
 
 func TestSortABitOfRandomData(t *testing.T) {
-	runRandomTest(t, 10, 8)
+	runRandomTest(t, 10, 8, false)
 }
 
 func TestSortSomeRandomData(t *testing.T) {
-	runRandomTest(t, 20, 12)
+	runRandomTest(t, 20, 12, false)
 }
 
 func TestSortMoreRandomData(t *testing.T) {
-	runRandomTest(t, 40, 30)
+	runRandomTest(t, 40, 30, false)
 }
 
 func TestSortLotsOfRandomData(t *testing.T) {
-	runRandomTest(t, 400, 200)
+	runRandomTest(t, 400, 200, false)
 }
 
 func TestSort40kOfRandomData(t *testing.T) {
-	runRandomTest(t, 40000, 20000)
+	runRandomTest(t, 40000, 20000, false)
 }
 
 /*

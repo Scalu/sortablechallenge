@@ -5,11 +5,15 @@ import (
 )
 
 type stringOperationManager struct {
-	value        string
-	valueIndex   int
-	extraData    interface{}
-	st           *StringTree
-	handleResult func(int, bool)
+	value            string
+	valueIndex       int
+	extraData        interface{}
+	backupValue      string
+	backupIndex      int
+	backupExtraData  interface{}
+	rebalanceStarted bool
+	st               *StringTree
+	handleResult     func(int, bool)
 }
 
 func (som *stringOperationManager) StoreValue() int {
@@ -86,6 +90,9 @@ func (som *stringOperationManager) GetStoredValueString(valueIndex int) string {
 func (som *stringOperationManager) SetValueToStoredValue(valueIndex int) {
 	som.st.mutex.Lock()
 	som.value = som.st.strings[valueIndex]
+	if som.st.StoreExtraData {
+		som.extraData = som.st.extraData[valueIndex]
+	}
 	som.st.mutex.Unlock()
 	som.valueIndex = valueIndex
 }
@@ -95,6 +102,31 @@ func (som *stringOperationManager) HandleResult(matchIndex int, matchFound bool)
 		som.handleResult(matchIndex, matchFound)
 		som.handleResult = nil
 	}
+}
+
+func (som *stringOperationManager) OnRebalance() {
+	som.st.OnRebalance()
+}
+
+func (som *stringOperationManager) StartRebalance() bool {
+	if som.rebalanceStarted {
+		return false
+	}
+	som.backupIndex = som.valueIndex
+	som.backupValue = som.value
+	som.backupExtraData = som.extraData
+	som.rebalanceStarted = true
+	return true
+}
+
+func (som *stringOperationManager) EndRebalance() {
+	if !som.rebalanceStarted {
+		panic("EndRebalance called when StartRebalance was not called or already ended")
+	}
+	som.valueIndex = som.backupIndex
+	som.value = som.backupValue
+	som.extraData = som.backupExtraData
+	som.rebalanceStarted = false
 }
 
 // StringTree a binary tree of string values
@@ -115,6 +147,9 @@ func (st *StringTree) getRootNode() *binaryTreeConcurrentNode {
 			st.LogFunction = func(stringToLog string) bool {
 				return false
 			}
+		}
+		if st.OnRebalance == nil {
+			st.OnRebalance = func() {}
 		}
 		st.rootNode = &binaryTreeConcurrentNode{valueIndex: -1, branchBoundaries: [2]int{-1, -1}}
 	}
@@ -142,7 +177,7 @@ func (st *StringTree) InsertValue(valueToInsert string, extraData interface{}, r
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, st.OnRebalance, st.LogFunction)
+	}}, onStart, st.LogFunction)
 }
 
 func (st *StringTree) DeleteValue(valueToDelete string, resultHandler func(bool, interface{}), onStart func()) {
@@ -154,5 +189,5 @@ func (st *StringTree) DeleteValue(valueToDelete string, resultHandler func(bool,
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, st.OnRebalance, false, st.LogFunction)
+	}}, onStart, false, false, st.LogFunction)
 }

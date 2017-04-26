@@ -6,11 +6,15 @@ import (
 )
 
 type intOperationManager struct {
-	value        int
-	valueIndex   int
-	extraData    interface{}
-	st           *IntTree
-	handleResult func(int, bool)
+	value            int
+	valueIndex       int
+	extraData        interface{}
+	backupValue      int
+	backupIndex      int
+	backupExtraData  interface{}
+	rebalanceStarted bool
+	st               *IntTree
+	handleResult     func(int, bool)
 }
 
 func (iom *intOperationManager) StoreValue() int {
@@ -87,6 +91,9 @@ func (iom *intOperationManager) GetStoredValueString(valueIndex int) string {
 func (iom *intOperationManager) SetValueToStoredValue(valueIndex int) {
 	iom.st.mutex.Lock()
 	iom.value = iom.st.ints[valueIndex]
+	if iom.st.StoreExtraData {
+		iom.extraData = iom.st.extraData[valueIndex]
+	}
 	iom.st.mutex.Unlock()
 	iom.valueIndex = valueIndex
 }
@@ -96,6 +103,31 @@ func (iom *intOperationManager) HandleResult(matchIndex int, matchFound bool) {
 		iom.handleResult(matchIndex, matchFound)
 		iom.handleResult = nil
 	}
+}
+
+func (iom *intOperationManager) OnRebalance() {
+	iom.st.OnRebalance()
+}
+
+func (iom *intOperationManager) StartRebalance() bool {
+	if iom.rebalanceStarted {
+		return false
+	}
+	iom.backupIndex = iom.valueIndex
+	iom.backupValue = iom.value
+	iom.backupExtraData = iom.extraData
+	iom.rebalanceStarted = true
+	return true
+}
+
+func (iom *intOperationManager) EndRebalance() {
+	if !iom.rebalanceStarted {
+		panic("EndRebalance called when StartRebalance was not called or already ended")
+	}
+	iom.valueIndex = iom.backupIndex
+	iom.value = iom.backupValue
+	iom.extraData = iom.backupExtraData
+	iom.rebalanceStarted = false
 }
 
 // IntTree a binary tree of string values
@@ -116,6 +148,9 @@ func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
 			st.LogFunction = func(stringToLog string) bool {
 				return false
 			}
+		}
+		if st.OnRebalance == nil {
+			st.OnRebalance = func() {}
 		}
 		st.rootNode = &binaryTreeConcurrentNode{valueIndex: -1, branchBoundaries: [2]int{-1, -1}}
 	}
@@ -143,7 +178,7 @@ func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultH
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, st.OnRebalance, st.LogFunction)
+	}}, onStart, st.LogFunction)
 }
 
 func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func()) {
@@ -155,5 +190,5 @@ func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, inter
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, st.OnRebalance, false, st.LogFunction)
+	}}, onStart, false, false, st.LogFunction)
 }
