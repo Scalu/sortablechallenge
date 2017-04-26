@@ -1,0 +1,11 @@
+90ms of 90ms total (  100%)
+      flat  flat%   sum%        cum   cum%
+      80ms 88.89% 88.89%       90ms   100%  github.com/Scalu/sortablechallenge/sortablechallengeutils.(*BinaryTree).rebalanceNode
+      10ms 11.11%   100%       10ms 11.11%  runtime.heapBitsSetType
+         0     0%   100%       90ms   100%  github.com/Scalu/sortablechallenge/sortablechallengeutils.(*BinaryTree).Insert
+         0     0%   100%       90ms   100%  github.com/Scalu/sortablechallenge/sortablechallengeutils.(*BinaryTree).processRebalanceList
+         0     0%   100%       90ms   100%  github.com/Scalu/sortablechallenge/sortablechallengeutils.TestSortRandomData
+         0     0%   100%       90ms   100%  runtime.goexit
+         0     0%   100%       10ms 11.11%  runtime.growslice
+         0     0%   100%       10ms 11.11%  runtime.mallocgc
+         0     0%   100%       90ms   100%  testing.tRunner

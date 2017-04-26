@@ -1,41 +1,5 @@
-=== RUN   TestSortSingleValue
---- PASS: TestSortSingleValue (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 1 total values, 1 unique values
-=== RUN   TestSortBalancedValues
---- PASS: TestSortBalancedValues (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 3 total values, 3 unique values
-=== RUN   TestSortUnbalancedValuesAscending
---- PASS: TestSortUnbalancedValuesAscending (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 3 total values, 3 unique values
-=== RUN   TestSortUnbalancedValuesDescending
---- PASS: TestSortUnbalancedValuesDescending (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 3 total values, 3 unique values
-=== RUN   TestSortUnbalancedValuesMostlyAscending
---- PASS: TestSortUnbalancedValuesMostlyAscending (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 5 total values, 5 unique values
-=== RUN   TestSortUnbalancedValuesMostlyDescending
---- PASS: TestSortUnbalancedValuesMostlyDescending (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 5 total values, 5 unique values
-=== RUN   TestSortUnbalancedValuesComplex
---- PASS: TestSortUnbalancedValuesComplex (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 9 total values, 9 unique values
-=== RUN   TestSortABitOfRandomData
---- PASS: TestSortABitOfRandomData (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 10 total values, 6 unique values
-=== RUN   TestSortSomeRandomData
---- PASS: TestSortSomeRandomData (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 20 total values, 9 unique values
-=== RUN   TestSortMoreRandomData
---- PASS: TestSortMoreRandomData (0.00s)
-	BinaryTreeParrallel_test.go:145: Testing with 40 total values, 22 unique values
-=== RUN   TestSortLotsOfRandomData
---- PASS: TestSortLotsOfRandomData (0.01s)
-	BinaryTreeParrallel_test.go:145: Testing with 400 total values, 176 unique values
-=== RUN   TestSort40kOfRandomData
---- PASS: TestSort40kOfRandomData (26.30s)
-	BinaryTreeParrallel_test.go:145: Testing with 40000 total values, 17267 unique values
 === RUN   TestSortRandomData
 --- PASS: TestSortRandomData (0.10s)
-	BinaryTree_test.go:59: Testing with 29527 total values, 15477 unique values
+	BinaryTree_test.go:59: Testing with 24585 total values, 14110 unique values
 PASS
-ok  	github.com/Scalu/sortablechallenge/sortablechallengeutils	26.476s
+ok  	github.com/Scalu/sortablechallenge/sortablechallengeutils	0.164s
