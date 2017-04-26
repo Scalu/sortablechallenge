@@ -13,7 +13,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 	var insertSearchSemaphore sync.Mutex
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
-	jobQueue := make(chan func(), 4+len(values))
+	jobQueue := make(chan func(int), 4+len(values))
 	defer close(jobQueue)
 	var uniqueValueCount, rebalanceCount, jobCount int32
 	binaryTree := &IntTree{
@@ -31,19 +31,19 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 		}
 	}
 	// start the worker processes
-	workerProcess := func() {
-		var processToRun func()
+	workerProcess := func(workerID int) {
+		var processToRun func(int)
 		okay := true
 		for okay {
 			processToRun, okay = <-jobQueue
 			if okay {
-				processToRun()
+				processToRun(workerID)
 				atomic.AddInt32(&jobCount, -1)
 			}
 		}
 	}
 	for numberOfWorkers := runtime.GOMAXPROCS(0); numberOfWorkers > 0; numberOfWorkers-- {
-		go workerProcess()
+		go workerProcess(numberOfWorkers)
 	}
 	// insert values
 	for valueIndex, value := range values {
@@ -56,7 +56,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 		}
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&jobCount, 1)
-		jobQueue <- func() {
+		jobQueue <- func(workerID int) {
 			defer func() {
 				if x := recover(); x != nil {
 					if logFunction("") {
@@ -69,7 +69,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 				if !matchFound {
 					atomic.AddInt32(&uniqueValueCount, 1)
 				}
-			}, func() { insertSearchSemaphore.Unlock() })
+			}, func() { insertSearchSemaphore.Unlock() }, fmt.Sprint(workerID))
 		}
 	}
 	// ensure that search works well
@@ -82,7 +82,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 		}
 		insertSearchSemaphore.Lock()
 		atomic.AddInt32(&jobCount, 1)
-		jobQueue <- func() {
+		jobQueue <- func(workerID int) {
 			defer func() {
 				if x := recover(); x != nil {
 					if logFunction("") {
@@ -95,7 +95,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 				if !matchFound {
 					panic(fmt.Sprint("Did not find a match for value ", value))
 				}
-			}, func() { insertSearchSemaphore.Unlock() })
+			}, func() { insertSearchSemaphore.Unlock() }, fmt.Sprint(workerID))
 		}
 	}
 	// wait for process count to reach zero, or an error to occur
@@ -212,7 +212,11 @@ func TestSortMoreRandomData(t *testing.T) {
 }
 
 func TestSortLotsOfRandomData(t *testing.T) {
-	runRandomTest(t, 400, 200, false)
+	runRandomTest(t, 400, 200, true)
+}
+
+func TestSort4kOfRandomData(t *testing.T) {
+	runRandomTest(t, 4000, 2000, false)
 }
 
 func TestSort40kOfRandomData(t *testing.T) {

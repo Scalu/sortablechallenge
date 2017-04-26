@@ -2,41 +2,42 @@ package binaryTree
 
 import (
 	"fmt"
-	"sync"
+	"sync/atomic"
 )
 
 // btpMutex a Mutex wrapper that helps to keep track of which process has a specific Mutex locked
 type btpMutex struct {
-	mutexID     string
-	mutex       sync.Mutex
-	lockCounter int
-	currentLock int
+	mutexID string
+	//mutex       sync.Mutex
+	lockCounter int32
+	currentLock int32
 	node        *binaryTreeConcurrentNode
 }
 
 // lock logs a message if the Mutex is already locked before locking the Mutex, and then logs when the Mutex is locked
 func (mutex *btpMutex) lock(logFunction BtpLogFunction, mutexesLockedCounter *int, btom OperationManager) {
-	if mutex.currentLock > 0 {
+	myLockCounter := atomic.AddInt32(&mutex.lockCounter, 1) - 1
+	currentLock := atomic.LoadInt32(&mutex.currentLock)
+	if currentLock != myLockCounter {
 		if logFunction("") {
-			logFunction(fmt.Sprintf("mutex %s already locked, count %d, node %s", mutex.mutexID, mutex.currentLock, btpGetNodeString(mutex.node, btom)))
+			logFunction(fmt.Sprintf("mutex %s already locked, count %d/%d, node %s", mutex.mutexID, currentLock, myLockCounter, btpGetNodeString(mutex.node, btom)))
 		}
 	}
-	mutex.mutex.Lock()
-	mutex.lockCounter++
-	mutex.currentLock = mutex.lockCounter
+	for currentLock != myLockCounter {
+		currentLock = atomic.LoadInt32(&mutex.currentLock)
+	}
 	*mutexesLockedCounter++
 	if logFunction("") {
-		logFunction(fmt.Sprintf("mutex %s locked, count %d, node %s", mutex.mutexID, mutex.currentLock, btpGetNodeString(mutex.node, btom)))
+		logFunction(fmt.Sprintf("mutex %s locked, count %d, node %s", mutex.mutexID, currentLock, btpGetNodeString(mutex.node, btom)))
 	}
 }
 
 // unlock logs a message after the Mutex is unlocked
 func (mutex *btpMutex) unlock(logFunction BtpLogFunction, mutexesLockedCounter *int, btom OperationManager) {
-	mutex.currentLock = 0
-	mutex.mutex.Unlock()
+	currentLock := atomic.AddInt32(&mutex.currentLock, 1)
 	*mutexesLockedCounter--
 	if logFunction("") {
-		logFunction(fmt.Sprintf("mutex %s unlocked, count %d, node %s", mutex.mutexID, mutex.currentLock, btpGetNodeString(mutex.node, btom)))
+		logFunction(fmt.Sprintf("mutex %s unlocked, count %d, node %s", mutex.mutexID, currentLock, btpGetNodeString(mutex.node, btom)))
 	}
 }
 
@@ -288,6 +289,8 @@ func btpInsert(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 		if logFunction("") {
 			logFunction(fmt.Sprintf("adjusting weights %s", btpGetNodeString(adjustWeight.node, btom)))
 		}
+	}
+	for _, adjustWeight := range adjustWeights {
 		btpRebalance(adjustWeight.node, logFunction, btom)
 	}
 	if semaphoreLockCount > 0 {
@@ -440,6 +443,8 @@ func btpDelete(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 		if logFunction("") {
 			logFunction(fmt.Sprintf("adjusting weights %s", btpGetNodeString(adjustWeight.node, btom)))
 		}
+	}
+	for _, adjustWeight := range adjustWeights {
 		btpRebalance(adjustWeight.node, logFunction, btom)
 	}
 	btpRebalance(node, logFunction, btom)

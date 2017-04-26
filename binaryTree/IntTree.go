@@ -157,8 +157,8 @@ func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
 	return st.rootNode
 }
 
-func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, interface{}), onStart func()) {
-	btpSearch(st.getRootNode(), onStart, st.LogFunction, &intOperationManager{value: valueToFind, valueIndex: -1, handleResult: func(matchIndex int, matchFound bool) {
+func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, interface{}), onStart func(), logID string) {
+	btpSearch(st.getRootNode(), onStart, btpSetLogFunction(st.LogFunction, logID), &intOperationManager{value: valueToFind, valueIndex: -1, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
 			if st.StoreExtraData {
@@ -169,7 +169,7 @@ func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, inte
 	}, st: st})
 }
 
-func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func()) {
+func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func(), logID string) {
 	btpInsert(st.getRootNode(), &intOperationManager{value: valueToInsert, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
@@ -178,10 +178,10 @@ func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultH
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, st.LogFunction)
+	}}, onStart, btpSetLogFunction(st.LogFunction, logID))
 }
 
-func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func()) {
+func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func(), logID string) {
 	btpDelete(st.getRootNode(), &intOperationManager{value: valueToDelete, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
@@ -190,5 +190,5 @@ func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, inter
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, false, false, st.LogFunction)
+	}}, onStart, false, false, btpSetLogFunction(st.LogFunction, logID))
 }
