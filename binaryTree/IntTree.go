@@ -15,6 +15,7 @@ type intOperationManager struct {
 	rebalanceStarted bool
 	st               *IntTree
 	handleResult     func(int, bool)
+	nodesToRebalance [][]*binaryTreeConcurrentNode
 }
 
 func (iom *intOperationManager) StoreValue() int {
@@ -130,6 +131,39 @@ func (iom *intOperationManager) EndRebalance() {
 	iom.rebalanceStarted = false
 }
 
+func (iom *intOperationManager) GetClone() OperationManager {
+	clone := *iom
+	return &clone
+}
+
+// AddToRebalanceList adds a node to a list of nodes to be rebalanced
+func (iom *intOperationManager) AddToRebalanceList(node *binaryTreeConcurrentNode) {
+	nodeLevel := node.level
+	for len(iom.nodesToRebalance) <= nodeLevel {
+		iom.nodesToRebalance = append(iom.nodesToRebalance, []*binaryTreeConcurrentNode{})
+	}
+	for _, existingNode := range iom.nodesToRebalance[nodeLevel] {
+		if existingNode == node {
+			return
+		}
+	}
+	iom.nodesToRebalance[nodeLevel] = append(iom.nodesToRebalance[nodeLevel], node)
+}
+
+// GetNodeToRebalance returns next node in rebalance list, or nil if list is empty
+func (iom *intOperationManager) GetNodeToRebalance() (node *binaryTreeConcurrentNode) {
+	var sliceSize int
+	for index, nodesToRebalance := range iom.nodesToRebalance {
+		sliceSize = len(nodesToRebalance)
+		if sliceSize > 0 {
+			node = nodesToRebalance[sliceSize-1]
+			iom.nodesToRebalance[index] = nodesToRebalance[:sliceSize-1]
+			return
+		}
+	}
+	return
+}
+
 // IntTree a binary tree of string values
 type IntTree struct {
 	mutex          sync.Mutex
@@ -170,7 +204,7 @@ func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, inte
 }
 
 func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func(), logID string) {
-	btpInsert(st.getRootNode(), &intOperationManager{value: valueToInsert, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
+	btom := &intOperationManager{value: valueToInsert, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
 			if st.StoreExtraData {
@@ -178,11 +212,18 @@ func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultH
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, btpSetLogFunction(st.LogFunction, logID))
+	}}
+	logFunction := btpSetLogFunction(st.LogFunction, logID)
+	btpInsert(st.getRootNode(), btom, onStart, logFunction)
+	nodeToRebalance := btom.GetNodeToRebalance()
+	for nodeToRebalance != nil {
+		btpRebalance(nodeToRebalance, logFunction, btom)
+		nodeToRebalance = btom.GetNodeToRebalance()
+	}
 }
 
 func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func(), logID string) {
-	btpDelete(st.getRootNode(), &intOperationManager{value: valueToDelete, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
+	btom := &intOperationManager{value: valueToDelete, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
 			if st.StoreExtraData {
@@ -190,5 +231,12 @@ func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, inter
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}}, onStart, false, false, btpSetLogFunction(st.LogFunction, logID))
+	}}
+	logFunction := btpSetLogFunction(st.LogFunction, logID)
+	btpDelete(st.getRootNode(), btom, onStart, false, false, logFunction)
+	nodeToRebalance := btom.GetNodeToRebalance()
+	for nodeToRebalance != nil {
+		btpRebalance(nodeToRebalance, logFunction, btom)
+		nodeToRebalance = btom.GetNodeToRebalance()
+	}
 }
