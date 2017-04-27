@@ -18,7 +18,7 @@ type btpLockedMutex struct {
 }
 
 // lock logs a message if the Mutex is already locked before locking the Mutex, and then logs when the Mutex is locked
-func (mutex *btpMutex) wlock(logFunction BtpLogFunction, btom OperationManager) *btpLockedMutex {
+func (mutex *btpMutex) wlock(logFunction BtpLogFunction, btom OperationManager, lockedMutex *btpLockedMutex) {
 	if logFunction("") {
 		logFunction(fmt.Sprintf("write locking node %s", btpGetNodeString(mutex.node, btom)))
 	}
@@ -26,7 +26,8 @@ func (mutex *btpMutex) wlock(logFunction BtpLogFunction, btom OperationManager) 
 	if logFunction("") {
 		logFunction(fmt.Sprintf("write locked node %s", btpGetNodeString(mutex.node, btom)))
 	}
-	return &btpLockedMutex{mutex: mutex, isWLocked: true}
+	lockedMutex.mutex = mutex
+	lockedMutex.isWLocked = true
 }
 
 // unlock logs a message after the Mutex is unlocked
@@ -42,7 +43,7 @@ func (mutex *btpLockedMutex) wunlock(logFunction BtpLogFunction, btom OperationM
 }
 
 // lock logs a message if the Mutex is already locked before locking the Mutex, and then logs when the Mutex is locked
-func (mutex *btpMutex) rlock(logFunction BtpLogFunction, btom OperationManager) *btpLockedMutex {
+func (mutex *btpMutex) rlock(logFunction BtpLogFunction, btom OperationManager, lockedMutex *btpLockedMutex) {
 	if logFunction("") {
 		logFunction(fmt.Sprintf("read locking node %s", btpGetNodeString(mutex.node, btom)))
 	}
@@ -50,7 +51,10 @@ func (mutex *btpMutex) rlock(logFunction BtpLogFunction, btom OperationManager) 
 	if logFunction("") {
 		logFunction(fmt.Sprintf("read locked node %s", btpGetNodeString(mutex.node, btom)))
 	}
-	return &btpLockedMutex{mutex: mutex, isRLocked: true}
+	if lockedMutex != nil {
+		lockedMutex.mutex = mutex
+		lockedMutex.isRLocked = true
+	}
 }
 
 // unlock logs a message after the Mutex is unlocked
@@ -117,9 +121,10 @@ func btpSetLogFunction(oldLogFunction BtpLogFunction, id string) (newLogFunction
 
 // btpGetWeight returns a node's weight value, but locks the weight mutex first, and unlocks it when it's done
 func btpGetWeight(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, logFunction BtpLogFunction, btom OperationManager) (currentWeight int) {
+	var lockedMutex btpLockedMutex
 	if currentLock == nil || !currentLock.isRLocked && !currentLock.isWLocked {
-		currentLock = node.mutex.rlock(logFunction, btom)
-		defer currentLock.runlock(logFunction, btom)
+		node.mutex.rlock(logFunction, btom, &lockedMutex)
+		defer lockedMutex.runlock(logFunction, btom)
 	}
 	return node.currentWeight
 }
@@ -127,9 +132,10 @@ func btpGetWeight(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, l
 // btpAdjustPossibleWtAdj Locks the weight mutex and then adjusts one of the possible weight adjustment values by the given amount
 // it unlocks the weight mutex when it's done
 func btpAdjustPossibleWtAdj(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, side int, amount int, logFunction BtpLogFunction, btom OperationManager) {
+	var lockedMutex btpLockedMutex
 	if currentLock == nil || !currentLock.isWLocked && !currentLock.isRLocked {
-		currentLock = node.mutex.wlock(logFunction, btom)
-		defer currentLock.wunlock(logFunction, btom)
+		node.mutex.wlock(logFunction, btom, &lockedMutex)
+		defer lockedMutex.wunlock(logFunction, btom)
 	} else if currentLock.isRLocked {
 		panic("cannot adjust possible weights with a read-only lock")
 	}
@@ -148,9 +154,11 @@ func btpAddToRebalanceIfNeeded(node *binaryTreeConcurrentNode, currentLock *btpL
 // btpAdjustWeightAndPossibleWtAdj Locks the weight mutex, adjusts weight values, and then unlocks the weight mutex when it's done
 // weight is adjusted by given amount and then corresponding possible weight adjustment value is decreased
 func btpAdjustWeightAndPossibleWtAdj(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, amount int, logFunction BtpLogFunction, btom OperationManager) {
+	var lockedMutex btpLockedMutex
 	if currentLock == nil || !currentLock.isWLocked && !currentLock.isRLocked {
-		currentLock = node.mutex.wlock(logFunction, btom)
-		defer currentLock.wunlock(logFunction, btom)
+		node.mutex.wlock(logFunction, btom, &lockedMutex)
+		currentLock = &lockedMutex
+		defer lockedMutex.wunlock(logFunction, btom)
 	} else if currentLock.isRLocked {
 		panic("cannot adjust curreent and possible weights with a read-only lock")
 	}
@@ -209,15 +217,16 @@ func btpGetNodeString(node *binaryTreeConcurrentNode, btom OperationManager) str
 
 // btpGetBranchBoundary locks the Mutex, returns the value, and unlocks the Mutex for the corresponding boundary side
 func btpGetBranchBoundary(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, side int, logFunction BtpLogFunction, btom OperationManager) (valueIndex int) {
-	if currentLock == nil || !currentLock.isRLocked && !currentLock.isWLocked {
-		currentLock = node.mutex.rlock(logFunction, btom)
-		defer currentLock.runlock(logFunction, btom)
+	var lockedMutex btpLockedMutex
+	if currentLock == nil || !currentLock.isWLocked && !currentLock.isRLocked {
+		node.mutex.rlock(logFunction, btom, &lockedMutex)
+		defer lockedMutex.runlock(logFunction, btom)
 	}
 	return node.branchBoundaries[side]
 }
 
 func btpNextStep(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, comparisonResult int, logFunction BtpLogFunction, btom OperationManager) (nextNode *binaryTreeConcurrentNode, matchFound bool) {
-	var newLock *btpLockedMutex
+	var newLock btpLockedMutex
 	switch comparisonResult {
 	case -1:
 		nextNode = node.leftright[0]
@@ -232,15 +241,15 @@ func btpNextStep(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, co
 	}
 	if currentLock != nil {
 		if currentLock.isRLocked {
-			newLock = nextNode.mutex.rlock(logFunction, btom)
+			nextNode.mutex.rlock(logFunction, btom, &newLock)
 			currentLock.runlock(logFunction, btom)
 		} else if currentLock.isWLocked {
-			newLock = nextNode.mutex.wlock(logFunction, btom)
+			nextNode.mutex.wlock(logFunction, btom, &newLock)
 			currentLock.wunlock(logFunction, btom)
 		} else {
 			panic("btpNextStep requires locked node")
 		}
-		*currentLock = *newLock
+		*currentLock = newLock
 	}
 	return
 }
@@ -256,7 +265,9 @@ func btpSearch(node *binaryTreeConcurrentNode, onFirstLock func(), logFunction B
 	if logFunction("") {
 		logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPSearch ", btom.GetValueString()))
 	}
-	nodeLock := node.mutex.rlock(logFunction, btom) // lock the current tree
+	var nodeLockStore btpLockedMutex
+	nodeLock := &nodeLockStore
+	node.mutex.rlock(logFunction, btom, nodeLock) // lock the current tree
 	if onFirstLock != nil {
 		onFirstLock()
 	}
@@ -271,7 +282,7 @@ func btpSearch(node *binaryTreeConcurrentNode, onFirstLock func(), logFunction B
 type btpAdjustNodeElement struct {
 	node *binaryTreeConcurrentNode
 	side int
-	lock *btpLockedMutex
+	lock btpLockedMutex
 }
 
 // btpInsert Returns the value to be inserted, and wether a match was found with an existing value and thus no insertion was required.
@@ -286,7 +297,9 @@ func btpInsert(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 		logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPInsert ", btom.GetValueString()))
 	}
 	adjustWeights := make([]btpAdjustNodeElement, 0, 4)
-	nodeLock := node.mutex.wlock(logFunction, btom)
+	var nodeLockStore btpLockedMutex
+	nodeLock := &nodeLockStore
+	node.mutex.wlock(logFunction, btom, nodeLock) // lock the current tree
 	if onFirstLock != nil {
 		onFirstLock()
 	}
@@ -342,13 +355,14 @@ func btpDelete(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 	}
 	adjustWeights := make([]btpAdjustNodeElement, 0, 4)
 	adjustChildBounds := make([]btpAdjustNodeElement, 0, 4)
-	nodeLock := node.mutex.wlock(logFunction, btom)
+	var nodeLockStore btpLockedMutex
+	nodeLock := &nodeLockStore
+	node.mutex.wlock(logFunction, btom, nodeLock) // lock the current tree
 	if onFirstLock != nil {
 		onFirstLock()
 	}
 	var matchFound bool
 	var closestValues [2]int
-	var prevNodeLock *btpLockedMutex
 	var keepLock bool
 	for node.valueIndex > -1 && !matchFound {
 		comparisonResult := btom.CompareValueTo(node.valueIndex)
@@ -364,31 +378,33 @@ func btpDelete(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 			keepLock = btom.CompareValueTo(node.branchBoundaries[sideToDeleteFrom]) == 0
 			if keepLock {
 				mustMatch = true
-				adjustChildBounds = append(adjustChildBounds, btpAdjustNodeElement{node: node, side: sideToDeleteFrom, lock: nodeLock})
+				adjustChildBounds = append(adjustChildBounds, btpAdjustNodeElement{node: node, side: sideToDeleteFrom, lock: *nodeLock})
 			}
 			// adjust closestValues
 			closestValues[1-sideToDeleteFrom] = node.valueIndex
 		}
 		node, matchFound = btpNextStep(node, nil, comparisonResult, logFunction, btom)
 		if !matchFound {
-			prevNodeLock = nodeLock
-			nodeLock = node.mutex.wlock(logFunction, btom)
+			var newNodeLock btpLockedMutex
+			node.mutex.wlock(logFunction, btom, &newNodeLock)
 			if !keepLock {
-				prevNodeLock.wunlock(logFunction, btom)
+				nodeLock.wunlock(logFunction, btom)
 			}
+			*nodeLock = newNodeLock
 		}
 	}
 	var nodeToDeleteFrom *binaryTreeConcurrentNode
 	var replacementValueIndex int
 	if matchFound {
 		// adjust closest values
-		leftLock := node.leftright[0].mutex.rlock(logFunction, btom)
-		rightLock := node.leftright[1].mutex.rlock(logFunction, btom)
+		var leftLock, rightLock btpLockedMutex
+		node.leftright[0].mutex.rlock(logFunction, btom, &leftLock)
+		node.leftright[1].mutex.rlock(logFunction, btom, &rightLock)
 		if node.leftright[0].valueIndex > -1 {
-			closestValues[0] = btpGetBranchBoundary(node.leftright[0], leftLock, 1, logFunction, btom)
+			closestValues[0] = btpGetBranchBoundary(node.leftright[0], &leftLock, 1, logFunction, btom)
 		}
 		if node.leftright[1].valueIndex > -1 {
-			closestValues[1] = btpGetBranchBoundary(node.leftright[1], rightLock, 0, logFunction, btom)
+			closestValues[1] = btpGetBranchBoundary(node.leftright[1], &rightLock, 0, logFunction, btom)
 		}
 		// adjust bounds
 		for _, nodeAndSide := range adjustChildBounds {
@@ -482,7 +498,9 @@ func btpRebalance(node *binaryTreeConcurrentNode, logFunction BtpLogFunction, bt
 	if logFunction("") {
 		logFunction = btpSetLogFunction(logFunction, fmt.Sprint("BTPRebalance", btom.GetStoredValueString(node.valueIndex)))
 	}
-	nodeLock := node.mutex.wlock(logFunction, btom)
+	var nodeLockStore btpLockedMutex
+	nodeLock := &nodeLockStore
+	node.mutex.wlock(logFunction, btom, nodeLock) // lock the current tree
 	for node.currentWeight+node.possibleWtAdjust[1] < -1 || node.currentWeight-node.possibleWtAdjust[0] > 1 {
 		btom.OnRebalance()
 		newRootSide := 0            // side from which the new root node is being taken from

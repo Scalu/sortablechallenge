@@ -19,7 +19,7 @@ type stringOperationManager struct {
 
 func (som *stringOperationManager) StoreValue() int {
 	if som.valueIndex == -1 {
-		som.st.mutex.Lock()
+		som.st.rwmutex.Lock()
 		freeListLength := len(som.st.freeList)
 		if freeListLength > 1 {
 			som.valueIndex = som.st.freeList[freeListLength-1]
@@ -38,7 +38,7 @@ func (som *stringOperationManager) StoreValue() int {
 				som.st.extraData = append(som.st.extraData, som.extraData)
 			}
 		}
-		som.st.mutex.Unlock()
+		som.st.rwmutex.Unlock()
 	}
 	return som.valueIndex
 }
@@ -50,17 +50,17 @@ func (som *stringOperationManager) RestoreValue() int {
 
 func (som *stringOperationManager) DeleteValue() {
 	if som.valueIndex > -1 {
-		som.st.mutex.Lock()
+		som.st.rwmutex.Lock()
 		som.st.freeList = append(som.st.freeList, som.valueIndex)
-		som.st.mutex.Unlock()
+		som.st.rwmutex.Unlock()
 		som.valueIndex = -1
 	}
 }
 
 func (som *stringOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	som.st.mutex.Lock()
+	som.st.rwmutex.RLock()
 	storedValue := som.st.strings[valueIndex]
-	som.st.mutex.Unlock()
+	som.st.rwmutex.RUnlock()
 	if som.value < storedValue {
 		return -1
 	} else if som.value > storedValue {
@@ -82,19 +82,19 @@ func (som *stringOperationManager) GetStoredValueString(valueIndex int) string {
 	if valueIndex < 0 {
 		return "nil"
 	}
-	som.st.mutex.Lock()
+	som.st.rwmutex.RLock()
 	storedValue := som.st.strings[valueIndex]
-	som.st.mutex.Unlock()
+	som.st.rwmutex.RUnlock()
 	return storedValue
 }
 
 func (som *stringOperationManager) SetValueToStoredValue(valueIndex int) {
-	som.st.mutex.Lock()
+	som.st.rwmutex.RLock()
 	som.value = som.st.strings[valueIndex]
 	if som.st.StoreExtraData {
 		som.extraData = som.st.extraData[valueIndex]
 	}
-	som.st.mutex.Unlock()
+	som.st.rwmutex.RUnlock()
 	som.valueIndex = valueIndex
 }
 
@@ -165,7 +165,7 @@ func (som *stringOperationManager) GetNodeToRebalance() (node *binaryTreeConcurr
 
 // StringTree a binary tree of string values
 type StringTree struct {
-	mutex          sync.Mutex
+	rwmutex        sync.RWMutex
 	strings        []string
 	extraData      []interface{}
 	freeList       []int

@@ -20,7 +20,7 @@ type intOperationManager struct {
 
 func (iom *intOperationManager) StoreValue() int {
 	if iom.valueIndex == -1 {
-		iom.st.mutex.Lock()
+		iom.st.rwmutex.Lock()
 		freeListLength := len(iom.st.freeList)
 		if freeListLength > 1 {
 			iom.valueIndex = iom.st.freeList[freeListLength-1]
@@ -39,7 +39,7 @@ func (iom *intOperationManager) StoreValue() int {
 				iom.st.extraData = append(iom.st.extraData, iom.extraData)
 			}
 		}
-		iom.st.mutex.Unlock()
+		iom.st.rwmutex.Unlock()
 	}
 	return iom.valueIndex
 }
@@ -51,17 +51,17 @@ func (iom *intOperationManager) RestoreValue() int {
 
 func (iom *intOperationManager) DeleteValue() {
 	if iom.valueIndex > -1 {
-		iom.st.mutex.Lock()
+		iom.st.rwmutex.Lock()
 		iom.st.freeList = append(iom.st.freeList, iom.valueIndex)
-		iom.st.mutex.Unlock()
+		iom.st.rwmutex.Unlock()
 		iom.valueIndex = -1
 	}
 }
 
 func (iom *intOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	iom.st.mutex.Lock()
+	iom.st.rwmutex.RLock()
 	storedValue := iom.st.ints[valueIndex]
-	iom.st.mutex.Unlock()
+	iom.st.rwmutex.RUnlock()
 	if iom.value < storedValue {
 		return -1
 	} else if iom.value > storedValue {
@@ -83,19 +83,19 @@ func (iom *intOperationManager) GetStoredValueString(valueIndex int) string {
 	if valueIndex < 0 {
 		return "nil"
 	}
-	iom.st.mutex.Lock()
+	iom.st.rwmutex.RLock()
 	storedValue := iom.st.ints[valueIndex]
-	iom.st.mutex.Unlock()
+	iom.st.rwmutex.RUnlock()
 	return fmt.Sprint(storedValue)
 }
 
 func (iom *intOperationManager) SetValueToStoredValue(valueIndex int) {
-	iom.st.mutex.Lock()
+	iom.st.rwmutex.RLock()
 	iom.value = iom.st.ints[valueIndex]
 	if iom.st.StoreExtraData {
 		iom.extraData = iom.st.extraData[valueIndex]
 	}
-	iom.st.mutex.Unlock()
+	iom.st.rwmutex.RUnlock()
 	iom.valueIndex = valueIndex
 }
 
@@ -166,7 +166,7 @@ func (iom *intOperationManager) GetNodeToRebalance() (node *binaryTreeConcurrent
 
 // IntTree a binary tree of string values
 type IntTree struct {
-	mutex          sync.Mutex
+	rwmutex        sync.RWMutex
 	ints           []int
 	extraData      []interface{}
 	freeList       []int
