@@ -7,43 +7,50 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func runTest(t *testing.T, values []int, enableLogging bool) {
 	var insertSearchSemaphore sync.Mutex
+	unlockInsertSearchSemaphore := func() { insertSearchSemaphore.Unlock() }
 	errorChannel := make(chan string, 1)
 	defer close(errorChannel)
-	jobQueue := make(chan func(int), 4+len(values))
-	defer close(jobQueue)
-	var uniqueValueCount, rebalanceCount, jobCount int32
+	jobQueue := make(chan func(int, int32), 1)
+	workerShutdownSignalChannel := make(chan int)
+	defer close(workerShutdownSignalChannel)
+	var uniqueValueCount, rebalanceCount int32
 	binaryTree := &IntTree{
 		StoreExtraData: false,
 		OnRebalance:    func() { atomic.AddInt32(&rebalanceCount, 1) },
 		LogFunction: func(logLine string) bool {
 			return false
 		}}
+	testStartTime := time.Now()
 	if enableLogging {
 		binaryTree.LogFunction = func(logLine string) bool {
 			if len(logLine) != 0 {
-				fmt.Println(logLine)
+				fmt.Println(time.Since(testStartTime), logLine)
 			}
 			return true
 		}
 	}
 	// start the worker processes
+	var jobNumber int32
 	workerProcess := func(workerID int) {
-		var processToRun func(int)
+		var processToRun func(int, int32)
 		okay := true
 		for okay {
 			processToRun, okay = <-jobQueue
 			if okay {
-				processToRun(workerID)
-				atomic.AddInt32(&jobCount, -1)
+				jobNumber := atomic.AddInt32(&jobNumber, 1) - 1
+				processToRun(workerID, jobNumber)
 			}
 		}
+		workerShutdownSignalChannel <- 1
 	}
-	for numberOfWorkers := runtime.GOMAXPROCS(0); numberOfWorkers > 0; numberOfWorkers-- {
-		go workerProcess(numberOfWorkers)
+	numberOfWorkers := runtime.GOMAXPROCS(0)
+	for workerID := 0; workerID < numberOfWorkers; workerID++ {
+		go workerProcess(workerID)
 	}
 	// insert values
 	for valueIndex, value := range values {
@@ -55,8 +62,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 			logFunction = btpSetLogFunction(binaryTree.LogFunction, logID)
 		}
 		insertSearchSemaphore.Lock()
-		atomic.AddInt32(&jobCount, 1)
-		jobQueue <- func(workerID int) {
+		jobQueue <- func(workerID int, jobID int32) {
 			defer func() {
 				if x := recover(); x != nil {
 					if logFunction("") {
@@ -69,7 +75,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 				if !matchFound {
 					atomic.AddInt32(&uniqueValueCount, 1)
 				}
-			}, func() { insertSearchSemaphore.Unlock() }, fmt.Sprint(workerID))
+			}, unlockInsertSearchSemaphore, fmt.Sprint(workerID, ":", jobID))
 		}
 	}
 	// ensure that search works well
@@ -81,8 +87,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 			logFunction = btpSetLogFunction(binaryTree.LogFunction, logID)
 		}
 		insertSearchSemaphore.Lock()
-		atomic.AddInt32(&jobCount, 1)
-		jobQueue <- func(workerID int) {
+		jobQueue <- func(workerID int, jobID int32) {
 			defer func() {
 				if x := recover(); x != nil {
 					if logFunction("") {
@@ -95,19 +100,22 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 				if !matchFound {
 					panic(fmt.Sprint("Did not find a match for value ", value))
 				}
-			}, func() { insertSearchSemaphore.Unlock() }, fmt.Sprint(workerID))
+			}, unlockInsertSearchSemaphore, fmt.Sprint(workerID, ":", jobID))
 		}
 	}
 	// wait for process count to reach zero, or an error to occur
 	var firstError string
-	for jobCount > 0 {
+	var workersShutDown int
+	close(jobQueue)
+	for workersShutDown < numberOfWorkers {
 		select {
 		case errorString := <-errorChannel:
 			if len(firstError) == 0 {
 				firstError = errorString
 			}
 			fmt.Println("ERROR:", errorString)
-		default:
+		case <-workerShutdownSignalChannel:
+			workersShutDown++
 		}
 	}
 	if len(firstError) > 0 {
@@ -115,7 +123,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 		return
 	}
 	// log unique values
-	t.Logf("Testing with %d total values, %d unique values", len(values), uniqueValueCount)
+	t.Logf("Testing with %d total values, %d unique values, %d rebalances", len(values), uniqueValueCount, rebalanceCount)
 	// validate the data structure
 	iterator := btpGetFirst(binaryTree.getRootNode())
 	var previousValue int
@@ -212,7 +220,7 @@ func TestSortMoreRandomData(t *testing.T) {
 }
 
 func TestSortLotsOfRandomData(t *testing.T) {
-	runRandomTest(t, 400, 200, true)
+	runRandomTest(t, 400, 200, false)
 }
 
 func TestSort4kOfRandomData(t *testing.T) {
