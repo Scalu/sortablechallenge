@@ -3,6 +3,7 @@ package binaryTree
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 type intOperationManager struct {
@@ -15,7 +16,7 @@ type intOperationManager struct {
 	rebalanceStarted bool
 	st               *IntTree
 	handleResult     func(int, bool)
-	nodesToRebalance [][]*binaryTreeConcurrentNode
+	rebalanceTorchID int32
 }
 
 func (iom *intOperationManager) StoreValue() int {
@@ -139,41 +140,55 @@ func (iom *intOperationManager) GetClone() OperationManager {
 // AddToRebalanceList adds a node to a list of nodes to be rebalanced
 func (iom *intOperationManager) AddToRebalanceList(node *binaryTreeConcurrentNode) {
 	nodeLevel := node.level
-	for len(iom.nodesToRebalance) <= nodeLevel {
-		iom.nodesToRebalance = append(iom.nodesToRebalance, []*binaryTreeConcurrentNode{})
+	iom.st.rebalanceMutex.Lock()
+	for len(iom.st.nodesToRebalance) <= nodeLevel {
+		iom.st.nodesToRebalance = append(iom.st.nodesToRebalance, []*binaryTreeConcurrentNode{})
 	}
-	for _, existingNode := range iom.nodesToRebalance[nodeLevel] {
+	for _, existingNode := range iom.st.nodesToRebalance[nodeLevel] {
 		if existingNode == node {
+			iom.st.rebalanceMutex.Unlock()
 			return
 		}
 	}
-	iom.nodesToRebalance[nodeLevel] = append(iom.nodesToRebalance[nodeLevel], node)
+	iom.st.nodesToRebalance[nodeLevel] = append(iom.st.nodesToRebalance[nodeLevel], node)
+	iom.st.rebalanceMutex.Unlock()
 }
 
 // GetNodeToRebalance returns next node in rebalance list, or nil if list is empty
 func (iom *intOperationManager) GetNodeToRebalance() (node *binaryTreeConcurrentNode) {
 	var sliceSize int
-	for index, nodesToRebalance := range iom.nodesToRebalance {
+	if iom.rebalanceTorchID == 0 {
+		iom.rebalanceTorchID = atomic.AddInt32(&iom.st.rebalanceTorch, 1)
+	} else if iom.rebalanceTorchID != atomic.LoadInt32(&iom.st.rebalanceTorch) {
+		return
+	}
+	iom.st.rebalanceMutex.RLock()
+	for index, nodesToRebalance := range iom.st.nodesToRebalance {
 		sliceSize = len(nodesToRebalance)
 		if sliceSize > 0 {
 			node = nodesToRebalance[sliceSize-1]
-			iom.nodesToRebalance[index] = nodesToRebalance[:sliceSize-1]
+			iom.st.nodesToRebalance[index] = nodesToRebalance[:sliceSize-1]
+			iom.st.rebalanceMutex.RUnlock()
 			return
 		}
 	}
+	iom.st.rebalanceMutex.RUnlock()
 	return
 }
 
 // IntTree a binary tree of string values
 type IntTree struct {
-	rwmutex        sync.RWMutex
-	ints           []int
-	extraData      []interface{}
-	freeList       []int
-	rootNode       *binaryTreeConcurrentNode
-	StoreExtraData bool           // to be set if desired
-	LogFunction    BtpLogFunction // to be set if desired
-	OnRebalance    func()         // to be set if desired
+	rwmutex          sync.RWMutex
+	ints             []int
+	extraData        []interface{}
+	freeList         []int
+	rootNode         *binaryTreeConcurrentNode
+	StoreExtraData   bool           // to be set if desired
+	LogFunction      BtpLogFunction // to be set if desired
+	OnRebalance      func()         // to be set if desired
+	rebalanceMutex   sync.RWMutex
+	nodesToRebalance [][]*binaryTreeConcurrentNode
+	rebalanceTorch   int32
 }
 
 func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
@@ -192,7 +207,7 @@ func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
 }
 
 func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, interface{}), onStart func(), logID string) {
-	btpSearch(st.getRootNode(), onStart, btpSetLogFunction(st.LogFunction, logID), &intOperationManager{value: valueToFind, valueIndex: -1, handleResult: func(matchIndex int, matchFound bool) {
+	btom := &intOperationManager{value: valueToFind, valueIndex: -1, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
 			if st.StoreExtraData {
@@ -200,7 +215,14 @@ func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, inte
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}, st: st})
+	}, st: st}
+	logFunction := btpSetLogFunction(st.LogFunction, logID)
+	btpSearch(st.getRootNode(), onStart, logFunction, btom)
+	nodeToRebalance := btom.GetNodeToRebalance()
+	for nodeToRebalance != nil {
+		btpRebalance(nodeToRebalance, logFunction, btom)
+		nodeToRebalance = btom.GetNodeToRebalance()
+	}
 }
 
 func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func(), logID string) {

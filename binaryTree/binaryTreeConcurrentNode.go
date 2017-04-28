@@ -124,9 +124,12 @@ func btpGetWeight(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, l
 	var lockedMutex btpLockedMutex
 	if currentLock == nil || !currentLock.isRLocked && !currentLock.isWLocked {
 		node.mutex.rlock(logFunction, btom, &lockedMutex)
-		defer lockedMutex.runlock(logFunction, btom)
 	}
-	return node.currentWeight
+	currentWeight = node.currentWeight
+	if lockedMutex.isRLocked {
+		lockedMutex.runlock(logFunction, btom)
+	}
+	return
 }
 
 // btpAdjustPossibleWtAdj Locks the weight mutex and then adjusts one of the possible weight adjustment values by the given amount
@@ -134,12 +137,16 @@ func btpGetWeight(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, l
 func btpAdjustPossibleWtAdj(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, side int, amount int, logFunction BtpLogFunction, btom OperationManager) {
 	var lockedMutex btpLockedMutex
 	if currentLock == nil || !currentLock.isWLocked && !currentLock.isRLocked {
+		currentLock = &lockedMutex
 		node.mutex.wlock(logFunction, btom, &lockedMutex)
-		defer lockedMutex.wunlock(logFunction, btom)
 	} else if currentLock.isRLocked {
 		panic("cannot adjust possible weights with a read-only lock")
 	}
 	node.possibleWtAdjust[side] += amount
+	btpAddToRebalanceIfNeeded(node, currentLock, btom)
+	if lockedMutex.isWLocked {
+		lockedMutex.wunlock(logFunction, btom)
+	}
 }
 
 func btpAddToRebalanceIfNeeded(node *binaryTreeConcurrentNode, currentLock *btpLockedMutex, btom OperationManager) {
@@ -304,20 +311,59 @@ func btpInsert(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 		onFirstLock()
 	}
 	var matchFound bool
+	var valueKnownToNotExist bool
+	var resultIndex int
 	for node.valueIndex > -1 && !matchFound {
 		comparisonResult := btom.CompareValueTo(node.valueIndex)
 		if comparisonResult != 0 {
 			sideIndex := 0
+			movingTowardsImbalance := node.currentWeight+node.possibleWtAdjust[1] < 0
 			if comparisonResult > 0 {
 				sideIndex = 1
+				movingTowardsImbalance = node.currentWeight-node.possibleWtAdjust[0] > 0
 			}
-			btpAdjustPossibleWtAdj(node, nodeLock, sideIndex, 1, logFunction, btom)
-			adjustWeights = append(adjustWeights, btpAdjustNodeElement{node: node, side: sideIndex})
-			if btom.CompareValueTo(node.branchBoundaries[sideIndex]) == comparisonResult {
+			// compare value to boundary
+			comparisonToBoundryResult := btom.CompareValueTo(node.branchBoundaries[sideIndex])
+			if comparisonToBoundryResult == comparisonResult {
 				node.branchBoundaries[sideIndex] = btom.StoreValue()
+				valueKnownToNotExist = true
+			} else if comparisonToBoundryResult == 0 {
+				matchFound = true
+				resultIndex = node.branchBoundaries[sideIndex]
+				break
 			}
+			var nextValue int
+			// check if self-balancing possible
+			if movingTowardsImbalance {
+				nextValue = btpGetBranchBoundary(node.leftright[sideIndex], nil, 1-sideIndex, logFunction, btom)
+				if nextValue == -1 {
+					movingTowardsImbalance = false
+				}
+			}
+			if movingTowardsImbalance {
+				if btom.CompareValueTo(nextValue) == 0-comparisonResult {
+					// replace current node, and continue insert with replaced value in the opposite direction
+					currentNodeValueIndex := node.valueIndex
+					node.valueIndex = btom.StoreValue()
+					valueKnownToNotExist = true
+					btom.SetValueToStoredValue(currentNodeValueIndex)
+					comparisonResult = 0 - comparisonResult
+					sideIndex = 1 - sideIndex
+				}
+			}
+			// set possible weight adjustment
+			if valueKnownToNotExist {
+				node.currentWeight += sideIndex*2 - 1
+				btpAddToRebalanceIfNeeded(node, nodeLock, btom)
+			} else {
+				btpAdjustPossibleWtAdj(node, nodeLock, sideIndex, 1, logFunction, btom)
+				adjustWeights = append(adjustWeights, btpAdjustNodeElement{node: node, side: sideIndex})
+			}
+			node, matchFound = btpNextStep(node, nodeLock, comparisonResult, logFunction, btom)
+		} else {
+			matchFound = true
+			resultIndex = node.valueIndex
 		}
-		node, matchFound = btpNextStep(node, nodeLock, comparisonResult, logFunction, btom)
 	}
 	if node.valueIndex == -1 {
 		node.valueIndex = btom.StoreValue()
@@ -325,8 +371,8 @@ func btpInsert(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 		node.leftright[0] = &binaryTreeConcurrentNode{parent: node, valueIndex: -1, branchBoundaries: [2]int{-1, -1}, sideFromParent: 0, level: node.level + 1}
 		node.leftright[1] = &binaryTreeConcurrentNode{parent: node, valueIndex: -1, branchBoundaries: [2]int{-1, -1}, sideFromParent: 1, level: node.level + 1}
 		node.mutex.node = node
+		resultIndex = node.valueIndex
 	}
-	resultIndex := node.valueIndex
 	nodeLock.wunlock(logFunction, btom)
 	btom.HandleResult(resultIndex, matchFound)
 	for _, adjustWeight := range adjustWeights {
