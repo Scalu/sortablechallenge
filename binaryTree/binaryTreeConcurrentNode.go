@@ -71,21 +71,21 @@ func (mutex *btpLockedMutex) runlock(logFunction BtpLogFunction, btom OperationM
 
 // binaryTreeConcurrentNode creates a weight-balanced concurrent binary tree that supports parallel insert, delete and search processes
 type binaryTreeConcurrentNode struct {
-	mutex            btpMutex
-	valueIndex       int
-	currentWeight    int
-	possibleWtAdjust [2]int // possible weight adjustments pending inserts and deletions
-	parent           *binaryTreeConcurrentNode
-	sideFromParent   int
-	level            int
-	leftright        [2]*binaryTreeConcurrentNode
-	branchBoundaries [2]int
+	mutex              btpMutex
+	valueIndex         int
+	currentWeight      int
+	possibleWtAdjust   [2]int // possible weight adjustments pending inserts and deletions
+	parent             *binaryTreeConcurrentNode
+	sideFromParent     int
+	level              int
+	leftright          [2]*binaryTreeConcurrentNode
+	branchBoundaries   [2]int
+	rebalanceScheduled bool
 }
 
 // OperationManager interface required by binary tree operations to store and compare values
 type OperationManager interface {
 	StoreValue() int                               // stores the operation value, can be called multiple times and should return the same index
-	RestoreValue() int                             // copies the value to a new location and returns the index
 	DeleteValue()                                  // deletes value from the storage
 	CompareValueTo(int) int                        // compares set value to the stored value
 	GetValueString() string                        // gets a string for the operation value
@@ -93,11 +93,9 @@ type OperationManager interface {
 	SetValueToStoredValue(int)                     // sets the value to a stored value, allows reuse
 	HandleResult(int, bool)                        // handles the result of the operation
 	OnRebalance()                                  // handles tracking rebalance count if necessary
-	StartRebalance() bool                          // store the value and valueIndex and return true on first call, or just return false
-	EndRebalance()                                 // restore the value and valueIndex, will panic if called with StartRebalance being previously called
-	GetClone() OperationManager                    // returns a clone, used for rebalancing
 	AddToRebalanceList(*binaryTreeConcurrentNode)  // adds a node to a list of nodes to be rebalanced
-	GetNodeToRebalance() *binaryTreeConcurrentNode // returns next node in rebalance list, or nil if list is empty
+	GetNodeToRebalance() *binaryTreeConcurrentNode // gets a node that needs to be rebalanced
+	GetNewNode() *binaryTreeConcurrentNode         // allocates an empty node and returns the address
 }
 
 // BtpLogFunction A log function that returns true if logging is turned on
@@ -153,7 +151,10 @@ func btpAddToRebalanceIfNeeded(node *binaryTreeConcurrentNode, currentLock *btpL
 	if currentLock == nil || !currentLock.isWLocked && !currentLock.isRLocked {
 		panic("cannot check unlocked node for rebalancing")
 	}
-	if node.currentWeight+node.possibleWtAdjust[1] < -1 || node.currentWeight-node.possibleWtAdjust[0] > 1 {
+	if !node.rebalanceScheduled &&
+		(node.currentWeight+node.possibleWtAdjust[1] < -1 ||
+			node.currentWeight-node.possibleWtAdjust[0] > 1) {
+		node.rebalanceScheduled = true
 		btom.AddToRebalanceList(node)
 	}
 }
@@ -368,8 +369,15 @@ func btpInsert(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 	if node.valueIndex == -1 {
 		node.valueIndex = btom.StoreValue()
 		node.branchBoundaries = [2]int{node.valueIndex, node.valueIndex}
-		node.leftright[0] = &binaryTreeConcurrentNode{parent: node, valueIndex: -1, branchBoundaries: [2]int{-1, -1}, sideFromParent: 0, level: node.level + 1}
-		node.leftright[1] = &binaryTreeConcurrentNode{parent: node, valueIndex: -1, branchBoundaries: [2]int{-1, -1}, sideFromParent: 1, level: node.level + 1}
+		newLeftNode := btom.GetNewNode()
+		newLeftNode.parent = node
+		newLeftNode.sideFromParent = 0
+		newLeftNode.level = node.level + 1
+		newRightNode := btom.GetNewNode()
+		newRightNode.parent = node
+		newRightNode.sideFromParent = 1
+		newRightNode.level = node.level + 1
+		node.leftright = [2]*binaryTreeConcurrentNode{newLeftNode, newRightNode}
 		node.mutex.node = node
 		resultIndex = node.valueIndex
 	}
@@ -410,6 +418,7 @@ func btpDelete(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 	var matchFound bool
 	var closestValues [2]int
 	var keepLock bool
+	var valueKnownToExist bool
 	for node.valueIndex > -1 && !matchFound {
 		comparisonResult := btom.CompareValueTo(node.valueIndex)
 		if comparisonResult != 0 {
@@ -417,19 +426,31 @@ func btpDelete(node *binaryTreeConcurrentNode, btom OperationManager, onFirstLoc
 			if comparisonResult > 0 {
 				sideToDeleteFrom = 1
 			}
-			// adjust weights
-			btpAdjustPossibleWtAdj(node, nodeLock, 1-sideToDeleteFrom, 1, logFunction, btom)
-			adjustWeights = append(adjustWeights, btpAdjustNodeElement{node: node, side: 1 - sideToDeleteFrom})
+			boundaryComparisonResult := btom.CompareValueTo(node.branchBoundaries[sideToDeleteFrom])
 			// check if branchBounds need to be adjusted
-			keepLock = btom.CompareValueTo(node.branchBoundaries[sideToDeleteFrom]) == 0
+			if boundaryComparisonResult == 0 {
+				keepLock = true
+				valueKnownToExist = true
+				mustMatch = true
+			}
 			if keepLock {
 				mustMatch = true
 				adjustChildBounds = append(adjustChildBounds, btpAdjustNodeElement{node: node, side: sideToDeleteFrom, lock: *nodeLock})
 			}
+			// adjust weights
+			if valueKnownToExist {
+				node.currentWeight -= 2*sideToDeleteFrom - 1
+				btpAddToRebalanceIfNeeded(node, nodeLock, btom)
+			} else {
+				btpAdjustPossibleWtAdj(node, nodeLock, 1-sideToDeleteFrom, 1, logFunction, btom)
+				adjustWeights = append(adjustWeights, btpAdjustNodeElement{node: node, side: 1 - sideToDeleteFrom})
+			}
 			// adjust closestValues
 			closestValues[1-sideToDeleteFrom] = node.valueIndex
+			node, matchFound = btpNextStep(node, nil, comparisonResult, logFunction, btom)
+		} else {
+			matchFound = true
 		}
-		node, matchFound = btpNextStep(node, nil, comparisonResult, logFunction, btom)
 		if !matchFound {
 			var newNodeLock btpLockedMutex
 			node.mutex.wlock(logFunction, btom, &newNodeLock)
@@ -547,6 +568,7 @@ func btpRebalance(node *binaryTreeConcurrentNode, logFunction BtpLogFunction, bt
 	var nodeLockStore btpLockedMutex
 	nodeLock := &nodeLockStore
 	node.mutex.wlock(logFunction, btom, nodeLock) // lock the current tree
+	node.rebalanceScheduled = false
 	for node.currentWeight+node.possibleWtAdjust[1] < -1 || node.currentWeight-node.possibleWtAdjust[0] > 1 {
 		btom.OnRebalance()
 		newRootSide := 0            // side from which the new root node is being taken from

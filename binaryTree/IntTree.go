@@ -10,59 +10,50 @@ type intOperationManager struct {
 	value            int
 	valueIndex       int
 	extraData        interface{}
-	backupValue      int
-	backupIndex      int
-	backupExtraData  interface{}
-	rebalanceStarted bool
-	st               *IntTree
+	it               *IntTree
 	handleResult     func(int, bool)
 	rebalanceTorchID int32
 }
 
 func (iom *intOperationManager) StoreValue() int {
 	if iom.valueIndex == -1 {
-		iom.st.rwmutex.Lock()
-		freeListLength := len(iom.st.freeList)
+		iom.it.rwmutex.Lock()
+		freeListLength := len(iom.it.freeList)
 		if freeListLength > 1 {
-			iom.valueIndex = iom.st.freeList[freeListLength-1]
-			iom.st.freeList = iom.st.freeList[:freeListLength-1]
-			iom.st.ints[iom.valueIndex] = iom.value
-			if iom.st.StoreExtraData {
-				iom.st.extraData[iom.valueIndex] = iom.extraData
+			iom.valueIndex = iom.it.freeList[freeListLength-1]
+			iom.it.freeList = iom.it.freeList[:freeListLength-1]
+			iom.it.ints[iom.valueIndex] = iom.value
+			if iom.it.StoreExtraData {
+				iom.it.extraData[iom.valueIndex] = iom.extraData
 			}
 		} else {
-			iom.valueIndex = len(iom.st.ints)
-			iom.st.ints = append(iom.st.ints, iom.value)
-			if iom.st.StoreExtraData {
-				if len(iom.st.extraData) != iom.valueIndex {
+			iom.valueIndex = len(iom.it.ints)
+			iom.it.ints = append(iom.it.ints, iom.value)
+			if iom.it.StoreExtraData {
+				if len(iom.it.extraData) != iom.valueIndex {
 					panic("Size of extraData array should match size of String array.")
 				}
-				iom.st.extraData = append(iom.st.extraData, iom.extraData)
+				iom.it.extraData = append(iom.it.extraData, iom.extraData)
 			}
 		}
-		iom.st.rwmutex.Unlock()
+		iom.it.rwmutex.Unlock()
 	}
 	return iom.valueIndex
 }
 
-func (iom *intOperationManager) RestoreValue() int {
-	iom.valueIndex = -1
-	return iom.StoreValue()
-}
-
 func (iom *intOperationManager) DeleteValue() {
 	if iom.valueIndex > -1 {
-		iom.st.rwmutex.Lock()
-		iom.st.freeList = append(iom.st.freeList, iom.valueIndex)
-		iom.st.rwmutex.Unlock()
+		iom.it.rwmutex.Lock()
+		iom.it.freeList = append(iom.it.freeList, iom.valueIndex)
+		iom.it.rwmutex.Unlock()
 		iom.valueIndex = -1
 	}
 }
 
 func (iom *intOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	iom.st.rwmutex.RLock()
-	storedValue := iom.st.ints[valueIndex]
-	iom.st.rwmutex.RUnlock()
+	iom.it.rwmutex.RLock()
+	storedValue := iom.it.ints[valueIndex]
+	iom.it.rwmutex.RUnlock()
 	if iom.value < storedValue {
 		return -1
 	} else if iom.value > storedValue {
@@ -84,19 +75,19 @@ func (iom *intOperationManager) GetStoredValueString(valueIndex int) string {
 	if valueIndex < 0 {
 		return "nil"
 	}
-	iom.st.rwmutex.RLock()
-	storedValue := iom.st.ints[valueIndex]
-	iom.st.rwmutex.RUnlock()
+	iom.it.rwmutex.RLock()
+	storedValue := iom.it.ints[valueIndex]
+	iom.it.rwmutex.RUnlock()
 	return fmt.Sprint(storedValue)
 }
 
 func (iom *intOperationManager) SetValueToStoredValue(valueIndex int) {
-	iom.st.rwmutex.RLock()
-	iom.value = iom.st.ints[valueIndex]
-	if iom.st.StoreExtraData {
-		iom.extraData = iom.st.extraData[valueIndex]
+	iom.it.rwmutex.RLock()
+	iom.value = iom.it.ints[valueIndex]
+	if iom.it.StoreExtraData {
+		iom.extraData = iom.it.extraData[valueIndex]
 	}
-	iom.st.rwmutex.RUnlock()
+	iom.it.rwmutex.RUnlock()
 	iom.valueIndex = valueIndex
 }
 
@@ -108,157 +99,98 @@ func (iom *intOperationManager) HandleResult(matchIndex int, matchFound bool) {
 }
 
 func (iom *intOperationManager) OnRebalance() {
-	iom.st.OnRebalance()
-}
-
-func (iom *intOperationManager) StartRebalance() bool {
-	if iom.rebalanceStarted {
-		return false
-	}
-	iom.backupIndex = iom.valueIndex
-	iom.backupValue = iom.value
-	iom.backupExtraData = iom.extraData
-	iom.rebalanceStarted = true
-	return true
-}
-
-func (iom *intOperationManager) EndRebalance() {
-	if !iom.rebalanceStarted {
-		panic("EndRebalance called when StartRebalance was not called or already ended")
-	}
-	iom.valueIndex = iom.backupIndex
-	iom.value = iom.backupValue
-	iom.extraData = iom.backupExtraData
-	iom.rebalanceStarted = false
-}
-
-func (iom *intOperationManager) GetClone() OperationManager {
-	clone := *iom
-	return &clone
+	iom.it.OnRebalance()
 }
 
 // AddToRebalanceList adds a node to a list of nodes to be rebalanced
 func (iom *intOperationManager) AddToRebalanceList(node *binaryTreeConcurrentNode) {
-	nodeLevel := node.level
-	iom.st.rebalanceMutex.Lock()
-	for len(iom.st.nodesToRebalance) <= nodeLevel {
-		iom.st.nodesToRebalance = append(iom.st.nodesToRebalance, []*binaryTreeConcurrentNode{})
-	}
-	for _, existingNode := range iom.st.nodesToRebalance[nodeLevel] {
-		if existingNode == node {
-			iom.st.rebalanceMutex.Unlock()
-			return
-		}
-	}
-	iom.st.nodesToRebalance[nodeLevel] = append(iom.st.nodesToRebalance[nodeLevel], node)
-	iom.st.rebalanceMutex.Unlock()
+	iom.it.btd.addToRebalanceList(node)
 }
 
 // GetNodeToRebalance returns next node in rebalance list, or nil if list is empty
 func (iom *intOperationManager) GetNodeToRebalance() (node *binaryTreeConcurrentNode) {
-	var sliceSize int
 	if iom.rebalanceTorchID == 0 {
-		iom.rebalanceTorchID = atomic.AddInt32(&iom.st.rebalanceTorch, 1)
-	} else if iom.rebalanceTorchID != atomic.LoadInt32(&iom.st.rebalanceTorch) {
+		iom.rebalanceTorchID = atomic.AddInt32(&iom.it.rebalanceTorch, 1)
+	} else if iom.rebalanceTorchID != atomic.LoadInt32(&iom.it.rebalanceTorch) {
 		return
 	}
-	iom.st.rebalanceMutex.RLock()
-	for index, nodesToRebalance := range iom.st.nodesToRebalance {
-		sliceSize = len(nodesToRebalance)
-		if sliceSize > 0 {
-			node = nodesToRebalance[sliceSize-1]
-			iom.st.nodesToRebalance[index] = nodesToRebalance[:sliceSize-1]
-			iom.st.rebalanceMutex.RUnlock()
-			return
-		}
-	}
-	iom.st.rebalanceMutex.RUnlock()
-	return
+	return iom.it.btd.getNodeToRebalance()
+}
+
+func (iom *intOperationManager) GetNewNode() *binaryTreeConcurrentNode {
+	return iom.it.btd.getNewNode()
 }
 
 // IntTree a binary tree of string values
 type IntTree struct {
-	rwmutex          sync.RWMutex
-	ints             []int
-	extraData        []interface{}
-	freeList         []int
-	rootNode         *binaryTreeConcurrentNode
-	StoreExtraData   bool           // to be set if desired
-	LogFunction      BtpLogFunction // to be set if desired
-	OnRebalance      func()         // to be set if desired
-	rebalanceMutex   sync.RWMutex
-	nodesToRebalance [][]*binaryTreeConcurrentNode
-	rebalanceTorch   int32
+	rwmutex        sync.RWMutex
+	ints           []int
+	extraData      []interface{}
+	freeList       []int
+	rootNode       *binaryTreeConcurrentNode
+	StoreExtraData bool           // to be set if desired
+	LogFunction    BtpLogFunction // to be set if desired
+	OnRebalance    func()         // to be set if desired
+	rebalanceTorch int32
+	btd            binaryTreeData
 }
 
-func (st *IntTree) getRootNode() *binaryTreeConcurrentNode {
-	if st.rootNode == nil {
-		if st.LogFunction == nil {
-			st.LogFunction = func(stringToLog string) bool {
+func (it *IntTree) getRootNode() *binaryTreeConcurrentNode {
+	if it.rootNode == nil {
+		if it.LogFunction == nil {
+			it.LogFunction = func(stringToLog string) bool {
 				return false
 			}
 		}
-		if st.OnRebalance == nil {
-			st.OnRebalance = func() {}
+		if it.OnRebalance == nil {
+			it.OnRebalance = func() {}
 		}
-		st.rootNode = &binaryTreeConcurrentNode{valueIndex: -1, branchBoundaries: [2]int{-1, -1}}
+		it.rootNode = it.btd.getNewNode()
 	}
-	return st.rootNode
+	return it.rootNode
 }
 
-func (st *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, interface{}), onStart func(), logID string) {
+func (it *IntTree) SearchForValue(valueToFind int, resultHandler func(bool, interface{}), onStart func(), logID string) {
 	btom := &intOperationManager{value: valueToFind, valueIndex: -1, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
-			if st.StoreExtraData {
-				extraData = st.extraData[matchIndex]
+			if it.StoreExtraData {
+				extraData = it.extraData[matchIndex]
 			}
 			resultHandler(matchFound, extraData)
 		}
-	}, st: st}
-	logFunction := btpSetLogFunction(st.LogFunction, logID)
-	btpSearch(st.getRootNode(), onStart, logFunction, btom)
-	nodeToRebalance := btom.GetNodeToRebalance()
-	for nodeToRebalance != nil {
-		btpRebalance(nodeToRebalance, logFunction, btom)
-		nodeToRebalance = btom.GetNodeToRebalance()
-	}
+	}, it: it}
+	logFunction := btpSetLogFunction(it.LogFunction, logID)
+	btpSearch(it.getRootNode(), onStart, logFunction, btom)
+	it.btd.rebalanceNodes(logFunction, btom)
 }
 
-func (st *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func(), logID string) {
-	btom := &intOperationManager{value: valueToInsert, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
+func (it *IntTree) InsertValue(valueToInsert int, extraData interface{}, resultHandler func(bool, interface{}), onStart func(), logID string) {
+	btom := &intOperationManager{value: valueToInsert, valueIndex: -1, it: it, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
-			if st.StoreExtraData {
-				extraData = st.extraData[matchIndex]
+			if it.StoreExtraData {
+				extraData = it.extraData[matchIndex]
 			}
 			resultHandler(matchFound, extraData)
 		}
 	}}
-	logFunction := btpSetLogFunction(st.LogFunction, logID)
-	btpInsert(st.getRootNode(), btom, onStart, logFunction)
-	nodeToRebalance := btom.GetNodeToRebalance()
-	for nodeToRebalance != nil {
-		btpRebalance(nodeToRebalance, logFunction, btom)
-		nodeToRebalance = btom.GetNodeToRebalance()
-	}
+	logFunction := btpSetLogFunction(it.LogFunction, logID)
+	btpInsert(it.getRootNode(), btom, onStart, logFunction)
+	it.btd.rebalanceNodes(logFunction, btom)
 }
 
-func (st *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func(), logID string) {
-	btom := &intOperationManager{value: valueToDelete, valueIndex: -1, st: st, handleResult: func(matchIndex int, matchFound bool) {
+func (it *IntTree) DeleteValue(valueToDelete int, resultHandler func(bool, interface{}), onStart func(), logID string) {
+	btom := &intOperationManager{value: valueToDelete, valueIndex: -1, it: it, handleResult: func(matchIndex int, matchFound bool) {
 		if resultHandler != nil {
 			var extraData interface{}
-			if st.StoreExtraData {
-				extraData = st.extraData[matchIndex]
+			if it.StoreExtraData {
+				extraData = it.extraData[matchIndex]
 			}
 			resultHandler(matchFound, extraData)
 		}
 	}}
-	logFunction := btpSetLogFunction(st.LogFunction, logID)
-	btpDelete(st.getRootNode(), btom, onStart, false, false, logFunction)
-	nodeToRebalance := btom.GetNodeToRebalance()
-	for nodeToRebalance != nil {
-		btpRebalance(nodeToRebalance, logFunction, btom)
-		nodeToRebalance = btom.GetNodeToRebalance()
-	}
+	logFunction := btpSetLogFunction(it.LogFunction, logID)
+	btpDelete(it.getRootNode(), btom, onStart, false, false, logFunction)
+	it.btd.rebalanceNodes(logFunction, btom)
 }

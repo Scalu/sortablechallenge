@@ -30,12 +30,12 @@
 	IntTree_test.go:126: Testing with 40 total values, 22 unique values, 17 rebalances
 === RUN   TestSortLotsOfRandomData
 --- PASS: TestSortLotsOfRandomData (0.00s)
-	IntTree_test.go:126: Testing with 400 total values, 176 unique values, 475 rebalances
+	IntTree_test.go:126: Testing with 400 total values, 176 unique values, 506 rebalances
 === RUN   TestSort4kOfRandomData
---- PASS: TestSort4kOfRandomData (0.06s)
-	IntTree_test.go:126: Testing with 4000 total values, 1746 unique values, 8707 rebalances
+--- PASS: TestSort4kOfRandomData (0.04s)
+	IntTree_test.go:126: Testing with 4000 total values, 1746 unique values, 10095 rebalances
 === RUN   TestSort40kOfRandomData
---- PASS: TestSort40kOfRandomData (3.45s)
-	IntTree_test.go:126: Testing with 40000 total values, 17270 unique values, 106853 rebalances
+--- PASS: TestSort40kOfRandomData (1.26s)
+	IntTree_test.go:126: Testing with 40000 total values, 17270 unique values, 113170 rebalances
 PASS
-ok  	github.com/Scalu/sortablechallenge/binaryTree	3.578s
+ok  	github.com/Scalu/sortablechallenge/binaryTree	1.363s
