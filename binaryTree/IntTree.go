@@ -13,32 +13,45 @@ type intOperationManager struct {
 	it               *IntTree
 	handleResult     func(int, bool)
 	rebalanceTorchID int32
+	localIntArray    [][]int
+	localExtraArray  [][]interface{}
 }
 
 func (iom *intOperationManager) StoreValue() int {
 	if iom.valueIndex == -1 {
-		iom.it.rwmutex.Lock()
-		freeListLength := len(iom.it.freeList)
-		if freeListLength > 1 {
-			iom.valueIndex = iom.it.freeList[freeListLength-1]
-			iom.it.freeList = iom.it.freeList[:freeListLength-1]
-			iom.it.ints[iom.valueIndex] = iom.value
-			if iom.it.StoreExtraData {
-				iom.it.extraData[iom.valueIndex] = iom.extraData
-			}
-		} else {
-			iom.valueIndex = len(iom.it.ints)
-			iom.it.ints = append(iom.it.ints, iom.value)
-			if iom.it.StoreExtraData {
-				if len(iom.it.extraData) != iom.valueIndex {
-					panic("Size of extraData array should match size of String array.")
+		iom.valueIndex = int(atomic.AddInt32(&iom.it.nextIndex, 1) - 1)
+		if len(iom.localIntArray) <= iom.valueIndex>>8 {
+			iom.it.rwmutex.Lock()
+			freeListLength := len(iom.it.freeList)
+			if freeListLength > 1 {
+				iom.valueIndex = iom.it.freeList[freeListLength-1]
+				iom.it.freeList = iom.it.freeList[:freeListLength-1]
+			} else {
+				if len(iom.it.ints) <= iom.valueIndex>>8 {
+					iom.it.ints = append(iom.it.ints, make([]int, 256))
+					if iom.it.StoreExtraData {
+						iom.it.extraData = append(iom.it.extraData, make([]interface{}, 256))
+					}
 				}
-				iom.it.extraData = append(iom.it.extraData, iom.extraData)
+				iom.localIntArray = iom.it.ints
+				iom.localExtraArray = iom.it.extraData
 			}
+			iom.it.rwmutex.Unlock()
 		}
-		iom.it.rwmutex.Unlock()
+		iom.localIntArray[iom.valueIndex>>8][iom.valueIndex&255] = iom.value
+		iom.localIntArray[iom.valueIndex>>8][iom.valueIndex&255] = iom.value
 	}
 	return iom.valueIndex
+}
+
+func (iom *intOperationManager) getStoredValue(valueIndex int) int {
+	if len(iom.localIntArray) <= valueIndex>>8 {
+		iom.it.rwmutex.RLock()
+		iom.localIntArray = iom.it.ints
+		iom.localExtraArray = iom.it.extraData
+		iom.it.rwmutex.RUnlock()
+	}
+	return iom.localIntArray[valueIndex>>8][valueIndex&255]
 }
 
 func (iom *intOperationManager) DeleteValue() {
@@ -51,20 +64,22 @@ func (iom *intOperationManager) DeleteValue() {
 }
 
 func (iom *intOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	iom.it.rwmutex.RLock()
-	storedValue := iom.it.ints[valueIndex]
-	iom.it.rwmutex.RUnlock()
-	if iom.value < storedValue {
-		return -1
+	if valueIndex == iom.valueIndex {
+		return
+	}
+	storedValue := iom.getStoredValue(valueIndex)
+	if iom.value == storedValue {
+		if iom.valueIndex == -1 {
+			iom.valueIndex = valueIndex
+		} else if iom.valueIndex != valueIndex {
+			panic("value stored twice")
+		}
 	} else if iom.value > storedValue {
-		return 1
+		comparisonResult = 1
+	} else {
+		comparisonResult = -1
 	}
-	if iom.valueIndex < 0 {
-		iom.valueIndex = valueIndex
-	} else if iom.valueIndex != valueIndex {
-		panic("value stored twice")
-	}
-	return 0
+	return
 }
 
 func (iom *intOperationManager) GetValueString() string {
@@ -75,19 +90,15 @@ func (iom *intOperationManager) GetStoredValueString(valueIndex int) string {
 	if valueIndex < 0 {
 		return "nil"
 	}
-	iom.it.rwmutex.RLock()
-	storedValue := iom.it.ints[valueIndex]
-	iom.it.rwmutex.RUnlock()
+	storedValue := iom.getStoredValue(valueIndex)
 	return fmt.Sprint(storedValue)
 }
 
 func (iom *intOperationManager) SetValueToStoredValue(valueIndex int) {
-	iom.it.rwmutex.RLock()
-	iom.value = iom.it.ints[valueIndex]
+	iom.value = iom.getStoredValue(valueIndex)
 	if iom.it.StoreExtraData {
-		iom.extraData = iom.it.extraData[valueIndex]
+		iom.extraData = iom.localExtraArray[valueIndex>>8][valueIndex&255]
 	}
-	iom.it.rwmutex.RUnlock()
 	iom.valueIndex = valueIndex
 }
 
@@ -124,8 +135,9 @@ func (iom *intOperationManager) GetNewNode() *binaryTreeConcurrentNode {
 // IntTree a binary tree of string values
 type IntTree struct {
 	rwmutex        sync.RWMutex
-	ints           []int
-	extraData      []interface{}
+	ints           [][]int
+	nextIndex      int32
+	extraData      [][]interface{}
 	freeList       []int
 	rootNode       *binaryTreeConcurrentNode
 	StoreExtraData bool           // to be set if desired

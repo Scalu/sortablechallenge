@@ -129,7 +129,7 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 	var previousValue int
 	previousValue = -1
 	for iterator != nil {
-		currentValue := binaryTree.ints[iterator.valueIndex]
+		currentValue := binaryTree.ints[iterator.valueIndex>>8][iterator.valueIndex&255]
 		if currentValue <= previousValue {
 			t.Errorf("values out of order: %d then %d", previousValue, currentValue)
 			return
@@ -145,19 +145,19 @@ func runTest(t *testing.T, values []int, enableLogging bool) {
 			return
 		}
 		if iterator.leftright[0].branchBoundaries[0] != -1 && iterator.branchBoundaries[0] != iterator.leftright[0].branchBoundaries[0] {
-			t.Errorf("mismatched left branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("mismatched left branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[0], iterator.leftright[0].branchBoundaries[0], currentValue)
 			return
 		}
 		if iterator.leftright[0].branchBoundaries[0] == -1 && iterator.branchBoundaries[0] != iterator.valueIndex {
-			t.Errorf("invalid left branch boundary index %d should equal node value index %d", iterator.branchBoundaries[0], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("invalid left branch boundary index %d should equal node value index %d", iterator.branchBoundaries[0], currentValue)
 			return
 		}
 		if iterator.leftright[1].branchBoundaries[1] != -1 && iterator.branchBoundaries[1] != iterator.leftright[1].branchBoundaries[1] {
-			t.Errorf("mismatched right branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("mismatched right branch boundary index %d should equal %d for node value %d", iterator.branchBoundaries[1], iterator.leftright[1].branchBoundaries[1], currentValue)
 			return
 		}
 		if iterator.leftright[1].branchBoundaries[1] == -1 && iterator.branchBoundaries[1] != iterator.valueIndex {
-			t.Errorf("invalid right branch boundary index %d should equal node value index %d", iterator.branchBoundaries[1], binaryTree.ints[iterator.valueIndex])
+			t.Errorf("invalid right branch boundary index %d should equal node value index %d", iterator.branchBoundaries[1], currentValue)
 			return
 		}
 		iterator = btpGetNext(iterator)
@@ -220,7 +220,7 @@ func TestSortMoreRandomData(t *testing.T) {
 }
 
 func TestSortLotsOfRandomData(t *testing.T) {
-	runRandomTest(t, 400, 200, false)
+	runRandomTest(t, 400, 200, true)
 }
 
 func TestSort4kOfRandomData(t *testing.T) {

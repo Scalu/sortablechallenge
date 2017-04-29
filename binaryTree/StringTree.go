@@ -12,32 +12,45 @@ type stringOperationManager struct {
 	st               *StringTree
 	handleResult     func(int, bool)
 	rebalanceTorchID int32
+	localStringArray [][]string
+	localExtraArray  [][]interface{}
 }
 
 func (som *stringOperationManager) StoreValue() int {
 	if som.valueIndex == -1 {
-		som.st.rwmutex.Lock()
-		freeListLength := len(som.st.freeList)
-		if freeListLength > 1 {
-			som.valueIndex = som.st.freeList[freeListLength-1]
-			som.st.freeList = som.st.freeList[:freeListLength-1]
-			som.st.strings[som.valueIndex] = som.value
-			if som.st.StoreExtraData {
-				som.st.extraData[som.valueIndex] = som.extraData
-			}
-		} else {
-			som.valueIndex = len(som.st.strings)
-			som.st.strings = append(som.st.strings, som.value)
-			if som.st.StoreExtraData {
-				if len(som.st.extraData) != som.valueIndex {
-					panic("Size of extraData array should match size of String array.")
+		som.valueIndex = int(atomic.AddInt32(&som.st.nextIndex, 1) - 1)
+		if len(som.localStringArray) <= som.valueIndex>>8 {
+			som.st.rwmutex.Lock()
+			freeListLength := len(som.st.freeList)
+			if freeListLength > 1 {
+				som.valueIndex = som.st.freeList[freeListLength-1]
+				som.st.freeList = som.st.freeList[:freeListLength-1]
+			} else {
+				if len(som.st.strings) <= som.valueIndex>>8 {
+					som.st.strings = append(som.st.strings, make([]string, 256))
+					if som.st.StoreExtraData {
+						som.st.extraData = append(som.st.extraData, make([]interface{}, 256))
+					}
 				}
-				som.st.extraData = append(som.st.extraData, som.extraData)
+				som.localStringArray = som.st.strings
+				som.localExtraArray = som.st.extraData
 			}
+			som.st.rwmutex.Unlock()
 		}
-		som.st.rwmutex.Unlock()
+		som.localStringArray[som.valueIndex>>8][som.valueIndex&255] = som.value
+		som.localStringArray[som.valueIndex>>8][som.valueIndex&255] = som.value
 	}
 	return som.valueIndex
+}
+
+func (som *stringOperationManager) getStoredValue(valueIndex int) string {
+	if len(som.localStringArray) <= valueIndex>>8 {
+		som.st.rwmutex.RLock()
+		som.localStringArray = som.st.strings
+		som.localExtraArray = som.st.extraData
+		som.st.rwmutex.RUnlock()
+	}
+	return som.localStringArray[valueIndex>>8][valueIndex&255]
 }
 
 func (som *stringOperationManager) DeleteValue() {
@@ -50,20 +63,22 @@ func (som *stringOperationManager) DeleteValue() {
 }
 
 func (som *stringOperationManager) CompareValueTo(valueIndex int) (comparisonResult int) {
-	som.st.rwmutex.RLock()
-	storedValue := som.st.strings[valueIndex]
-	som.st.rwmutex.RUnlock()
-	if som.value < storedValue {
-		return -1
+	if valueIndex == som.valueIndex {
+		return
+	}
+	storedValue := som.getStoredValue(valueIndex)
+	if som.value == storedValue {
+		if som.valueIndex < 0 {
+			som.valueIndex = valueIndex
+		} else if som.valueIndex != valueIndex {
+			panic("value stored twice")
+		}
 	} else if som.value > storedValue {
-		return 1
+		comparisonResult = 1
+	} else {
+		comparisonResult = -1
 	}
-	if som.valueIndex < 0 {
-		som.valueIndex = valueIndex
-	} else if som.valueIndex != valueIndex {
-		panic("value stored twice")
-	}
-	return 0
+	return
 }
 
 func (som *stringOperationManager) GetValueString() string {
@@ -74,19 +89,15 @@ func (som *stringOperationManager) GetStoredValueString(valueIndex int) string {
 	if valueIndex < 0 {
 		return "nil"
 	}
-	som.st.rwmutex.RLock()
-	storedValue := som.st.strings[valueIndex]
-	som.st.rwmutex.RUnlock()
+	storedValue := som.getStoredValue(valueIndex)
 	return storedValue
 }
 
 func (som *stringOperationManager) SetValueToStoredValue(valueIndex int) {
-	som.st.rwmutex.RLock()
-	som.value = som.st.strings[valueIndex]
+	som.value = som.getStoredValue(valueIndex)
 	if som.st.StoreExtraData {
-		som.extraData = som.st.extraData[valueIndex]
+		som.extraData = som.localExtraArray[valueIndex>>8][valueIndex&255]
 	}
-	som.st.rwmutex.RUnlock()
 	som.valueIndex = valueIndex
 }
 
@@ -123,8 +134,9 @@ func (som *stringOperationManager) GetNewNode() *binaryTreeConcurrentNode {
 // StringTree a binary tree of string values
 type StringTree struct {
 	rwmutex        sync.RWMutex
-	strings        []string
-	extraData      []interface{}
+	strings        [][]string
+	nextIndex      int32
+	extraData      [][]interface{}
 	freeList       []int
 	rootNode       *binaryTreeConcurrentNode
 	StoreExtraData bool           // to be set if desired
